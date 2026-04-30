@@ -36,7 +36,7 @@ Exposes `window.electronAPI` with:
 
 | File | Role |
 |---|---|
-| `App.tsx` | All state: `imageUrl`, `annotations[]`, `isExporting`, arrow SVG overlay, export handlers |
+| `App.tsx` | All state: `imageUrl`, `annotations[]`, `isExporting`, arrow SVG overlay, export handlers, drag-and-drop |
 | `TopBar.tsx` | Draggable title bar, Save + Copy to Clipboard buttons |
 | `Sidebar.tsx` | 280px left panel, scrollable stack of AnnotationCards. Hides footer when `isExporting` |
 | `AnnotationCard.tsx` | Colored left border, auto-expanding textarea, delete button |
@@ -58,7 +58,11 @@ A `position: fixed` full-viewport SVG in `App.tsx`. Each `AnnotationCard` regist
 
 **Critical:** the ref callback in `AnnotationCard` must be wrapped in `useCallback`. Inline arrow functions cause an infinite re-render loop — React detects the new function identity, calls the old ref with `null`, which calls `setTick`, which triggers another render.
 
-### Export — `webContents.capturePage()`
+### Image loading
+There are two ways to load an image — both call the shared `loadImage(dataUrl)` helper in `App.tsx` which sets `imageUrl`, clears annotations, and resets `newestId`.
+
+- **Clipboard paste** — `loadFromClipboard()` calls the `clipboard:read-image` IPC handler. Triggered on mount and by `⌘V` (skipped when focus is in a TEXTAREA/INPUT).
+- **Drag-and-drop** — `dragenter`/`dragover`/`dragleave`/`drop` handlers on the root `<div>`. A `dragDepthRef` counter prevents the overlay from flickering as the cursor moves across child elements. On drop, the first image file is read via `FileReader.readAsDataURL` and passed to `loadImage`. A full-screen frosted overlay (`isDroppingFile` state) is shown while an image file is hovering over the window.
 Export no longer uses the offscreen canvas pipeline. Instead:
 1. `isExporting = true` is set in App state — this hides the "+ Add note" footer in Sidebar
 2. A double `requestAnimationFrame` ensures the DOM has repainted before capture

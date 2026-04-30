@@ -53,8 +53,8 @@ export default function Canvas({
     return (
       <div style={styles.emptyState}>
         <div style={styles.emptyIcon}>⌘V</div>
-        <p style={styles.emptyText}>Press ⌘V to paste a screenshot</p>
-        <p style={styles.emptyHint}>or copy an image and paste it here</p>
+        <p style={styles.emptyText}>Paste or drop an image to get started</p>
+        <p style={styles.emptyHint}>Press ⌘V, or drag an image file anywhere into this window</p>
       </div>
     )
   }

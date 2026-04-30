@@ -103,25 +103,67 @@ export default function App(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageRef.current])
 
-  // ── Load image from clipboard ────────────────────────────────────────────
+  // ── Load image (shared by clipboard + drag-and-drop) ────────────────────
+
+  const loadImage = useCallback((dataUrl: string): void => {
+    setImageUrl(dataUrl)
+    setAnnotations([])
+    setNewestId(null)
+  }, [])
 
   const loadFromClipboard = useCallback(async (): Promise<void> => {
     try {
       const dataUrl = await window.electronAPI.readClipboardImage()
-      if (dataUrl) {
-        setImageUrl(dataUrl)
-        setAnnotations([])
-        setNewestId(null)
-      }
+      if (dataUrl) loadImage(dataUrl)
     } catch (err) {
       console.error('Failed to read clipboard image:', err)
     }
-  }, [])
+  }, [loadImage])
 
   // On mount: try to load any image already in the clipboard
   useEffect(() => {
     loadFromClipboard()
   }, [loadFromClipboard])
+
+  // ── Drag-and-drop image into window ─────────────────────────────────────
+
+  const [isDroppingFile, setIsDroppingFile] = useState(false)
+  // Counter tracks nested dragenter/dragleave so the overlay stays visible
+  // while the cursor moves across child elements inside the root div.
+  const dragDepthRef = useRef(0)
+
+  const handleDragEnter = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    if (Array.from(e.dataTransfer.items).some((i) => i.kind === 'file' && i.type.startsWith('image/'))) {
+      dragDepthRef.current++
+      setIsDroppingFile(true)
+    }
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setIsDroppingFile(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent): void => {
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setIsDroppingFile(false)
+    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'))
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev): void => {
+      const result = ev.target?.result
+      if (typeof result === 'string') loadImage(result)
+    }
+    reader.readAsDataURL(file)
+  }, [loadImage])
 
   // Cmd+V keyboard shortcut
   useEffect(() => {
@@ -279,7 +321,21 @@ export default function App(): React.ReactElement {
   })
 
   return (
-    <div style={styles.root}>
+    <div
+      style={styles.root}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDroppingFile && (
+        <div style={styles.dropOverlay}>
+          <div style={styles.dropBox}>
+            <div style={styles.dropIcon}>↓</div>
+            <p style={styles.dropLabel}>Drop image to open</p>
+          </div>
+        </div>
+      )}
       <TopBar onSave={handleSave} onCopy={handleCopy} hasImage={!!imageUrl} copyState={copyState} />
 
       <div style={styles.body}>
@@ -335,5 +391,37 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'row',
     flex: 1,
     overflow: 'hidden',
+  },
+  dropOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 100,
+    background: 'rgba(0, 0, 0, 0.45)',
+    backdropFilter: 'blur(4px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
+  dropBox: {
+    border: '2px dashed rgba(255,255,255,0.6)',
+    borderRadius: 16,
+    padding: '48px 64px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12,
+  },
+  dropIcon: {
+    fontSize: 48,
+    lineHeight: 1,
+    color: '#fff',
+    fontWeight: 300,
+  },
+  dropLabel: {
+    fontSize: 18,
+    fontWeight: 500,
+    color: '#fff',
+    letterSpacing: 0.2,
   },
 }

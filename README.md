@@ -1,6 +1,6 @@
 # SpecShot
 
-**Paste a screenshot, annotate it with numbered notes and arrows, copy it back to your clipboard — pixel-perfect, at Retina resolution.**
+**Paste or drop a screenshot, annotate it with notes and arrows, copy it back to your clipboard — pixel-perfect, at Retina resolution.**
 
 Built for quickly communicating UI feedback or bug context to an LLM, a designer, or a teammate.
 
@@ -14,7 +14,7 @@ Built for quickly communicating UI feedback or bug context to an LLM, a designer
 
 ## What it does
 
-1. **Paste** any screenshot with `⌘V` — the app reads your clipboard automatically on launch and whenever you paste.
+1. **Paste or drop** a screenshot — press `⌘V` to paste from the clipboard, or drag any image file straight into the window.
 2. **Click** anywhere on the image to drop an annotation dot. A colored card appears in the sidebar.
 3. **Type** a note in the card describing what you want to say about that point.
 4. **Drag** the dot on the image to reposition it at any time.
@@ -29,6 +29,7 @@ The exported image is a pixel-perfect, full-Retina screenshot of the actual rend
 | Feature | Detail |
 |---|---|
 | **⌘V paste** | Reads image from clipboard; auto-loaded on launch |
+| **Drag-and-drop** | Drag any image file into the window — works whether the canvas is empty or has an existing image; a frosted overlay appears while hovering |
 | **Click-to-annotate** | Drops a colored dot + matching sidebar card |
 | **Draggable dots** | Reposition any annotation point after placing it |
 | **Dashed arrows** | A fixed viewport-level SVG connects each card to its dot in real time |
