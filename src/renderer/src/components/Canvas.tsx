@@ -92,7 +92,6 @@ const styles: Record<string, React.CSSProperties> = {
   imageContainer: {
     position: 'relative',
     display: 'inline-block',
-    maxHeight: '100%',
     boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
     borderRadius: 4,
     overflow: 'visible',
@@ -101,7 +100,8 @@ const styles: Record<string, React.CSSProperties> = {
   image: {
     display: 'block',
     maxWidth: '100%',
-    maxHeight: '100%',
+    // 44px topbar + 48px wrapper padding (24px top + 24px bottom)
+    maxHeight: 'calc(100vh - var(--topbar-height) - 48px)',
     cursor: 'crosshair',
     borderRadius: 4,
     userSelect: 'none',
