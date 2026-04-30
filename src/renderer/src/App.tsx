@@ -12,7 +12,7 @@ function clamp01(v: number): number {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ANNOTATION_COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00']
+const ANNOTATION_COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00', '#FFD700']
 
 function randomColor(): string {
   return ANNOTATION_COLORS[Math.floor(Math.random() * ANNOTATION_COLORS.length)]
@@ -82,7 +82,15 @@ export default function App(): React.ReactElement {
     }
   }, [])
 
-  // Re-render arrows when the image element resizes (e.g. window resize)
+  // Re-render arrows when the window resizes or the image element resizes.
+  // The window listener covers the common case where imageRef.current is null
+  // at effect-setup time (first paste), so the ResizeObserver alone would miss it.
+  useEffect(() => {
+    const bump = (): void => setTick((t) => t + 1)
+    window.addEventListener('resize', bump)
+    return () => window.removeEventListener('resize', bump)
+  }, [])
+
   useEffect(() => {
     const el = imageRef.current
     if (!el) return

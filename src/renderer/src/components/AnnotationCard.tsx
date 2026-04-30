@@ -44,7 +44,7 @@ export default function AnnotationCard({
   return (
     <div
       ref={cardRef}
-      style={{ ...styles.card, borderLeft: `3px solid ${annotation.color}` }}
+      style={{ ...styles.card, border: `1px solid ${annotation.color}` }}
     >
       <button
         style={styles.deleteBtn}
@@ -70,8 +70,8 @@ export default function AnnotationCard({
 const styles: Record<string, React.CSSProperties> = {
   card: {
     position: 'relative',
-    background: '#ffffff',
-    borderRadius: 8,
+    background: 'var(--color-bg-card)',
+    borderRadius: 6,
     boxShadow: 'var(--color-card-shadow)',
     padding: '10px 10px 10px 12px',
     marginBottom: 8,
