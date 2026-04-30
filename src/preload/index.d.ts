@@ -1,10 +1,17 @@
+export interface SpeechPayload {
+  annotationId: string
+  type: 'interim' | 'final' | 'stopped' | 'error'
+  text?: string
+  message?: string
+}
+
 export interface ElectronAPI {
-  /** Read an image from the system clipboard. Returns a base64 dataURL, or null if no image. */
   readClipboardImage(): Promise<string | null>
-  /** Write a base64 dataURL image to the system clipboard. */
   writeClipboardImage(dataUrl: string): Promise<void>
-  /** Open a native save dialog and write the base64 dataURL to disk as a PNG. */
   saveImage(dataUrl: string): Promise<void>
+  startSpeech(annotationId: string): Promise<void>
+  stopSpeech(): Promise<void>
+  onSpeechResult(cb: (payload: SpeechPayload) => void): () => void
 }
 
 declare global {

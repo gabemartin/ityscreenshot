@@ -12,12 +12,14 @@ import {
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import { spawn, ChildProcess } from 'child_process'
 
 // ─── Globals ────────────────────────────────────────────────────────────────
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let speechProc: ChildProcess | null = null
 
 // ─── Dev / prod helper (no @electron-toolkit/utils available) ───────────────
 
@@ -153,6 +155,48 @@ function registerIpcHandlers(): void {
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
     const buffer = Buffer.from(base64, 'base64')
     fs.writeFileSync(filePath, buffer)
+  })
+
+  // ── Native macOS speech recognition via Swift helper ──────────────────────
+  // The webkitSpeechRecognition API doesn't work in Electron (missing Google API key).
+  // We spawn a compiled Swift binary that uses SFSpeechRecognizer instead.
+
+  const speechBinaryPath = path.join(__dirname, '../../resources/speech')
+
+  ipcMain.handle('speech:start', (_event, annotationId: string) => {
+    // Kill any existing session first
+    if (speechProc) {
+      speechProc.stdin?.write('quit\n')
+      speechProc.kill()
+      speechProc = null
+    }
+
+    speechProc = spawn(speechBinaryPath, [], { stdio: ['pipe', 'pipe', 'pipe'] })
+
+    speechProc.stdout?.on('data', (data: Buffer) => {
+      const lines = data.toString().split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const msg = JSON.parse(line) as { type: string; text?: string; message?: string }
+          mainWindow?.webContents.send('speech:result', { annotationId, ...msg })
+        } catch {
+          // ignore malformed lines
+        }
+      }
+    })
+
+    speechProc.on('exit', () => {
+      speechProc = null
+      mainWindow?.webContents.send('speech:result', { annotationId, type: 'stopped' })
+    })
+
+    speechProc.stdin?.write('start\n')
+  })
+
+  ipcMain.handle('speech:stop', () => {
+    if (speechProc) {
+      speechProc.stdin?.write('stop\n')
+    }
   })
 }
 

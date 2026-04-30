@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { Annotation, ISpeechRecognition, SpeechRecognitionEvent } from '../types'
+import { Annotation } from '../types'
 
 interface AnnotationCardProps {
   annotation: Annotation
@@ -18,16 +18,15 @@ export default function AnnotationCard({
 }: AnnotationCardProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isListening, setIsListening] = useState(false)
-  const recognitionRef = useRef<ISpeechRecognition | null>(null)
+  // Track committed text before this speech session started
+  const baseTextRef = useRef('')
 
-  // Auto-focus when the card is newly created
+  // Auto-focus when newly created
   useEffect(() => {
-    if (autoFocus) {
-      textareaRef.current?.focus()
-    }
+    if (autoFocus) textareaRef.current?.focus()
   }, [autoFocus])
 
-  // Auto-resize textarea to fit content
+  // Auto-resize textarea
   const resizeTextarea = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
@@ -35,91 +34,55 @@ export default function AnnotationCard({
     el.style.height = `${el.scrollHeight}px`
   }, [])
 
-  useEffect(() => {
-    resizeTextarea()
-  }, [annotation.text, resizeTextarea])
+  useEffect(() => { resizeTextarea() }, [annotation.text, resizeTextarea])
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
     onChange(annotation.id, e.target.value)
     resizeTextarea()
   }
 
-  // Stable ref callback — inline arrow functions cause infinite loops because
-  // React calls the old ref with null on every render when the function identity changes.
+  // Subscribe to speech results from the main process
+  useEffect(() => {
+    const unsub = window.electronAPI.onSpeechResult((payload) => {
+      if (payload.annotationId !== annotation.id) return
+
+      if (payload.type === 'interim' && payload.text !== undefined) {
+        onChange(annotation.id, baseTextRef.current + payload.text)
+        resizeTextarea()
+      } else if (payload.type === 'final' && payload.text !== undefined) {
+        const committed = baseTextRef.current + payload.text + ' '
+        baseTextRef.current = committed
+        onChange(annotation.id, committed)
+        resizeTextarea()
+      } else if (payload.type === 'stopped' || payload.type === 'error') {
+        setIsListening(false)
+      }
+    })
+    return unsub
+  }, [annotation.id, onChange, resizeTextarea])
+
+  const handleMic = useCallback(async (): Promise<void> => {
+    if (isListening) {
+      await window.electronAPI.stopSpeech()
+      setIsListening(false)
+    } else {
+      baseTextRef.current = annotation.text
+      await window.electronAPI.startSpeech(annotation.id)
+      setIsListening(true)
+    }
+  }, [isListening, annotation.id, annotation.text])
+
+  // Stable ref callback — avoids infinite re-render loop from inline arrow fns
   const cardRef = useCallback(
     (el: HTMLDivElement | null) => onRef(annotation.id, el),
     [annotation.id, onRef],
   )
 
-  const handleMic = (): void => {
-    const SpeechRecognition = window.SpeechRecognition ?? window.webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      alert('Speech recognition is not supported in this browser.')
-      return
-    }
-
-    if (isListening) {
-      recognitionRef.current?.stop()
-      return
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = 'en-US'
-    recognitionRef.current = recognition
-
-    // Keep a snapshot of committed text before this session started
-    const baseText = annotation.text
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interim = ''
-      let final = ''
-      for (let i = event.results.length - 1; i >= 0; i--) {
-        const result = event.results[i]
-        if (result.isFinal) {
-          final = result[0].transcript + ' '
-          break
-        } else {
-          interim = result[0].transcript
-        }
-      }
-      // Build the running text: base + all final segments + current interim
-      let committed = baseText
-      for (let i = 0; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          committed += event.results[i][0].transcript + ' '
-        }
-      }
-      void final // used implicitly above
-      onChange(annotation.id, committed + interim)
-      resizeTextarea()
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-      recognitionRef.current = null
-    }
-
-    recognition.onerror = () => {
-      setIsListening(false)
-      recognitionRef.current = null
-    }
-
-    recognition.start()
-    setIsListening(true)
-  }
-
   return (
     <div
       ref={cardRef}
-      style={{
-        ...styles.card,
-        borderLeft: `3px solid ${annotation.color}`,
-      }}
+      style={{ ...styles.card, borderLeft: `3px solid ${annotation.color}` }}
     >
-      {/* Delete button */}
       <button
         style={styles.deleteBtn}
         onClick={() => onDelete(annotation.id)}
@@ -129,7 +92,6 @@ export default function AnnotationCard({
         ×
       </button>
 
-      {/* Text area */}
       <textarea
         ref={textareaRef}
         style={styles.textarea}
@@ -139,7 +101,6 @@ export default function AnnotationCard({
         rows={2}
       />
 
-      {/* Mic button */}
       <div style={styles.cardFooter}>
         <button
           style={{
@@ -148,7 +109,7 @@ export default function AnnotationCard({
             color: isListening ? '#fff' : 'var(--color-text-secondary)',
           }}
           onClick={handleMic}
-          title={isListening ? 'Stop recording' : 'Dictate note'}
+          title={isListening ? 'Stop recording' : 'Dictate note (macOS Speech)'}
           aria-label={isListening ? 'Stop recording' : 'Start speech to text'}
         >
           🎤
@@ -167,7 +128,6 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: 'var(--color-card-shadow)',
     padding: '10px 10px 8px 12px',
     marginBottom: 8,
-    // Smooth shadow on hover is handled inline in the rendered element
   },
   deleteBtn: {
     position: 'absolute',
@@ -196,8 +156,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     lineHeight: 1.5,
     minHeight: 40,
-    paddingRight: 20, // leave room for × button
+    paddingRight: 20,
     overflow: 'hidden',
+    resize: 'none',
   },
   cardFooter: {
     display: 'flex',
@@ -216,12 +177,12 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 0,
     border: '1px solid transparent',
     transition: 'background 0.15s',
+    cursor: 'pointer',
   },
   listeningDot: {
     width: 6,
     height: 6,
     borderRadius: '50%',
     background: '#E91E8C',
-    animation: 'none',
   },
 }
