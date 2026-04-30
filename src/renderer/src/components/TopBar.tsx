@@ -4,9 +4,15 @@ interface TopBarProps {
   onSave: () => void
   onCopy: () => void
   hasImage: boolean
+  copyState?: 'idle' | 'copying' | 'copied'
 }
 
-export default function TopBar({ onSave, onCopy, hasImage }: TopBarProps): React.ReactElement {
+export default function TopBar({ onSave, onCopy, hasImage, copyState = 'idle' }: TopBarProps): React.ReactElement {
+  const isBusy = copyState === 'copying'
+  const isCopied = copyState === 'copied'
+  const copyLabel = isCopied ? 'Copied!' : isBusy ? 'Copying…' : 'Copy to Clipboard'
+  const copyActive = hasImage && !isBusy
+
   return (
     <div style={styles.topBar}>
       {/* Left spacer — leaves room for macOS traffic lights (hiddenInset) */}
@@ -21,13 +27,15 @@ export default function TopBar({ onSave, onCopy, hasImage }: TopBarProps): React
           style={{
             ...styles.btn,
             ...styles.btnSecondary,
-            opacity: hasImage ? 1 : 0.4,
-            cursor: hasImage ? 'pointer' : 'not-allowed',
+            ...(isCopied ? styles.btnCopied : {}),
+            opacity: copyActive ? 1 : 0.4,
+            cursor: copyActive ? 'pointer' : 'not-allowed',
+            transition: 'background 0.15s, color 0.15s, opacity 0.15s',
           }}
-          onClick={hasImage ? onCopy : undefined}
+          onClick={copyActive ? onCopy : undefined}
           title="Copy annotated screenshot to clipboard"
         >
-          Copy to Clipboard
+          {copyLabel}
         </button>
         <button
           style={{
@@ -99,5 +107,9 @@ const styles: Record<string, AppCSSProperties> = {
   btnSecondary: {
     background: 'var(--color-btn-secondary-bg)',
     color: 'var(--color-btn-secondary-text)',
+  },
+  btnCopied: {
+    background: '#00BFA5',
+    color: '#fff',
   },
 }

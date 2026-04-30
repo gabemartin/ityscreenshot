@@ -3,6 +3,7 @@ import { Annotation } from '../types'
 
 interface AnnotationCardProps {
   annotation: Annotation
+  index: number
   autoFocus: boolean
   onChange: (id: string, text: string) => void
   onDelete: (id: string) => void
@@ -11,6 +12,7 @@ interface AnnotationCardProps {
 
 export default function AnnotationCard({
   annotation,
+  index,
   autoFocus,
   onChange,
   onDelete,
@@ -46,6 +48,9 @@ export default function AnnotationCard({
       ref={cardRef}
       style={{ ...styles.card, border: `1px solid ${annotation.color}` }}
     >
+      <div style={{ ...styles.cardNumber, color: annotation.color }}>
+        {index + 1}
+      </div>
       <button
         style={styles.deleteBtn}
         onClick={() => onDelete(annotation.id)}
@@ -91,6 +96,13 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
+  },
+  cardNumber: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    marginBottom: 4,
+    fontVariantNumeric: 'tabular-nums',
   },
   textarea: {
     width: '100%',

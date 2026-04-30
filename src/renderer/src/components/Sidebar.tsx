@@ -9,6 +9,7 @@ interface SidebarProps {
   onDelete: (id: string) => void
   onAddNote: () => void
   onCardRef: (id: string, el: HTMLDivElement | null) => void
+  onScroll: () => void
   isExporting: boolean
 }
 
@@ -19,18 +20,20 @@ export default function Sidebar({
   onDelete,
   onAddNote,
   onCardRef,
+  onScroll,
   isExporting,
 }: SidebarProps): React.ReactElement {
   return (
     <div style={styles.sidebar}>
-      <div style={styles.scrollArea}>
+      <div style={styles.scrollArea} onScroll={onScroll}>
         {annotations.length === 0 ? (
           <p style={styles.empty}>Click the image to add annotations.</p>
         ) : (
-          annotations.map((ann) => (
+          annotations.map((ann, i) => (
             <AnnotationCard
               key={ann.id}
               annotation={ann}
+              index={i}
               autoFocus={ann.id === newestId}
               onChange={onChangeText}
               onDelete={onDelete}

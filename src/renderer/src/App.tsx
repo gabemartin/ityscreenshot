@@ -12,7 +12,7 @@ function clamp01(v: number): number {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ANNOTATION_COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00', '#FFD700']
+const ANNOTATION_COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00']
 
 function randomColor(): string {
   return ANNOTATION_COLORS[Math.floor(Math.random() * ANNOTATION_COLORS.length)]
@@ -29,6 +29,7 @@ export default function App(): React.ReactElement {
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [newestId, setNewestId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>('idle')
   const colorIndexRef = useRef(0)
 
   // Refs for viewport-level SVG arrow overlay
@@ -39,6 +40,8 @@ export default function App(): React.ReactElement {
 
   // ── Point dragging ───────────────────────────────────────────────────────
   const draggingIdRef = useRef<string | null>(null)
+
+  const handleSidebarScroll = useCallback(() => setTick((t) => t + 1), [])
 
   const handleCardRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -221,8 +224,15 @@ export default function App(): React.ReactElement {
 
   const handleCopy = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
+    setCopyState('Copying')
     const dataUrl = await capture()
-    if (dataUrl) window.electronAPI.writeClipboardImage(dataUrl)
+    if (dataUrl) {
+      await window.electronAPI.writeClipboardImage(dataUrl)
+      setCopyState('copied')
+      setTimeout(() => setCopyState('idle'), 1800)
+    } else {
+      setCopyState('idle')
+    }
   }, [imageUrl, capture])
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -270,7 +280,7 @@ export default function App(): React.ReactElement {
 
   return (
     <div style={styles.root}>
-      <TopBar onSave={handleSave} onCopy={handleCopy} hasImage={!!imageUrl} />
+      <TopBar onSave={handleSave} onCopy={handleCopy} hasImage={!!imageUrl} copyState={copyState} />
 
       <div style={styles.body}>
         <Sidebar
@@ -280,6 +290,7 @@ export default function App(): React.ReactElement {
           onDelete={handleDelete}
           onAddNote={handleAddNote}
           onCardRef={handleCardRef}
+          onScroll={handleSidebarScroll}
           isExporting={isExporting}
         />
 
