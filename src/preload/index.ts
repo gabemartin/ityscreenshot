@@ -12,4 +12,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   captureContent: (): Promise<string | null> =>
     ipcRenderer.invoke('capture-content'),
+
+  // Write an already-captured dataURL to a temp PNG on disk; returns the file path.
+  writeDragTemp: (dataUrl: string): Promise<string | null> =>
+    ipcRenderer.invoke('write-drag-temp', dataUrl),
+
+  // Initiate native OS drag using the pre-captured temp file.
+  // Must be called synchronously from an ondragstart handler.
+  dragOut: (): void =>
+    ipcRenderer.send('drag-out'),
 })

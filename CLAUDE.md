@@ -74,7 +74,7 @@ The exported image is pixel-perfect — it looks exactly like the live UI (sideb
 
 - `AnnotationOverlay.tsx` is still in the file tree but **unused** — arrows moved to App-level SVG. Safe to delete.
 - `utils/export.ts` is **unused** — kept but no longer called. Safe to delete.
-- **Tray icon** is a placeholder (borrowed from the `nanna` project). Needs a real icon.
+- **Dev dock icon:** macOS caches the icon from the Electron binary bundle. `app.dock.setIcon()` alone isn't enough — you must also replace `node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns` with `resources/icon.icns`. Re-do this after any `npm install` that upgrades Electron.
 - Dev console shows harmless `Autofill.enable failed` DevTools errors — disappear when packaged.
 - **Speech-to-text is removed.** `webkitSpeechRecognition` fails in Electron (no bundled Google API key — audio upload hits `net::ERR_FAILED`). A Swift `SFSpeechRecognizer` subprocess was tried and removed for complexity. Revisit later.
 

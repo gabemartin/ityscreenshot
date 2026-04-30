@@ -173,6 +173,38 @@ export default function App(): React.ReactElement {
     return dataUrl
   }, [])
 
+  // ── Drag-out pre-capture ─────────────────────────────────────────────────
+  // Keeps a temp PNG on disk that mirrors the current annotated view.
+  // Updated (debounced) whenever the image or annotations change so the file
+  // is ready before the user initiates a drag. The canvas receives a boolean
+  // so it can show/hide the drag handle accordingly.
+
+  const [isDragReady, setIsDragReady] = useState(false)
+  const dragDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    if (!imageUrl) {
+      setIsDragReady(false)
+      return
+    }
+    setIsDragReady(false)
+
+    if (dragDebounceRef.current) clearTimeout(dragDebounceRef.current)
+    dragDebounceRef.current = setTimeout(async () => {
+      // capture() sets isExporting=true, hides the sidebar footer, then captures.
+      // This ensures drag-out matches Save/Copy output exactly.
+      const dataUrl = await capture()
+      if (dataUrl) {
+        await window.electronAPI.writeDragTemp(dataUrl)
+        setIsDragReady(true)
+      }
+    }, 400)
+
+    return () => {
+      if (dragDebounceRef.current) clearTimeout(dragDebounceRef.current)
+    }
+  }, [imageUrl, annotations, capture])
+
   const handleSave = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
     const dataUrl = await capture()
@@ -248,6 +280,7 @@ export default function App(): React.ReactElement {
           annotations={annotations}
           imageRef={imageRef}
           onImageClick={handleImageClick}
+          isDragReady={isDragReady}
         />
       </div>
 
