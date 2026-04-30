@@ -1,19 +1,22 @@
 import { Annotation } from '../types'
 
-const SIDEBAR_W = 300
-const PAD = 14
+const SIDEBAR_W = 280
 const CARD_MARGIN = 8
-const BADGE_R = 11
+const CARD_PADDING_V = 10
+const CARD_PADDING_H = 12
+const CARD_BORDER = 3
+const CARD_RADIUS = 8
 const FONT_SIZE = 13
-const LINE_H = 19
-const BORDER_W = 3
+const LINE_H = 20
+const DOT_R = 5
+const SIDEBAR_TOP_PAD = 16
 
 /**
- * Renders the screenshot with a notes sidebar to the right.
- * - Numbered colored dots on the image at each annotation point
- * - Sidebar panel with matching numbered cards + note text
- * - Dashed lines connecting each card to its dot
- * Returns a PNG dataURL.
+ * Renders an image that looks exactly like the app UI:
+ * - Left: white sidebar with annotation cards (colored left border, note text)
+ * - Right: the screenshot with small colored dots at each annotation point
+ * - Dashed colored lines connecting each card to its dot
+ * No top bar, no buttons, no delete icons.
  */
 export async function renderAnnotatedImage(
   imageUrl: string,
@@ -22,137 +25,112 @@ export async function renderAnnotatedImage(
   const img = await loadImage(imageUrl)
   const { naturalWidth: imgW, naturalHeight: imgH } = img
 
-  const hasSidebar = annotations.length > 0
-  const totalW = hasSidebar ? imgW + SIDEBAR_W : imgW
+  // Measure card heights first so we can size the canvas
+  const scratch = document.createElement('canvas').getContext('2d')!
+  scratch.font = `${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  const textMaxW = SIDEBAR_W - CARD_PADDING_H * 2 - CARD_BORDER - 4
 
-  // First pass: measure card heights so we can center the sidebar block vertically
-  const ctx0 = document.createElement('canvas').getContext('2d')!
-  ctx0.font = `${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-  const textMaxW = SIDEBAR_W - PAD * 2 - BORDER_W - BADGE_R * 2 - 10
   const cardHeights = annotations.map((ann) => {
-    const lines = wrapText(ctx0, ann.text.trim() || '(no note)', textMaxW)
-    return Math.max(PAD * 2 + BADGE_R * 2, PAD + lines.length * LINE_H + PAD)
+    const lines = wrapText(scratch, ann.text.trim() || '(no note)', textMaxW)
+    return CARD_PADDING_V + lines.length * LINE_H + CARD_PADDING_V
   })
-  const totalSidebarH =
-    cardHeights.reduce((s, h) => s + h, 0) + CARD_MARGIN * (annotations.length - 1) + PAD * 2
 
-  const canvasH = Math.max(imgH, totalSidebarH)
+  const totalCardsH =
+    SIDEBAR_TOP_PAD +
+    cardHeights.reduce((s, h) => s + h, 0) +
+    CARD_MARGIN * Math.max(0, annotations.length - 1) +
+    SIDEBAR_TOP_PAD
+
+  const canvasH = Math.max(imgH, totalCardsH)
+  const canvasW = (annotations.length > 0 ? SIDEBAR_W : 0) + imgW
 
   const canvas = document.createElement('canvas')
-  canvas.width = totalW
+  canvas.width = canvasW
   canvas.height = canvasH
   const ctx = canvas.getContext('2d')!
 
-  // ── Background ──
-  ctx.fillStyle = '#f8f8f8'
-  ctx.fillRect(0, 0, totalW, canvasH)
-
-  // ── Image ──
-  // If canvas is taller than image, center the image vertically
   const imgOffsetY = Math.floor((canvasH - imgH) / 2)
-  ctx.drawImage(img, 0, imgOffsetY, imgW, imgH)
+  const imgX = annotations.length > 0 ? SIDEBAR_W : 0
 
-  if (!hasSidebar) return canvas.toDataURL('image/png')
+  // ── Sidebar background ──────────────────────────────────────────────────────
+  if (annotations.length > 0) {
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, SIDEBAR_W, canvasH)
+    // Thin right border matching the app's panel separator
+    ctx.fillStyle = '#e8e8e8'
+    ctx.fillRect(SIDEBAR_W - 1, 0, 1, canvasH)
+  }
 
-  // ── Sidebar background + separator ──
-  ctx.fillStyle = '#f8f8f8'
-  ctx.fillRect(imgW, 0, SIDEBAR_W, canvasH)
-  ctx.strokeStyle = '#e0e0e0'
-  ctx.lineWidth = 1
-  ctx.beginPath()
-  ctx.moveTo(imgW, 0)
-  ctx.lineTo(imgW, canvasH)
-  ctx.stroke()
+  // ── Image ───────────────────────────────────────────────────────────────────
+  ctx.drawImage(img, imgX, imgOffsetY, imgW, imgH)
 
-  // ── Cards ──
-  const sidebarStartY = Math.floor((canvasH - totalSidebarH) / 2) + PAD
+  if (annotations.length === 0) return canvas.toDataURL('image/png')
 
-  let cardY = sidebarStartY
+  // ── Cards + arrows + dots ───────────────────────────────────────────────────
+  let cardY = SIDEBAR_TOP_PAD
+
   annotations.forEach((ann, i) => {
     ctx.font = `${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-    const textMaxWidth = SIDEBAR_W - PAD * 2 - BORDER_W - BADGE_R * 2 - 10
-    const lines = wrapText(ctx, ann.text.trim() || '(no note)', textMaxWidth)
+    const lines = wrapText(ctx, ann.text.trim() || '(no note)', textMaxW)
     const cardH = cardHeights[i]
-    const cardX = imgW + PAD
-    const cardW = SIDEBAR_W - PAD * 2
+    const cardX = 8
+    const cardW = SIDEBAR_W - 16
 
-    // Card shadow / background
+    // Card shadow
     ctx.save()
-    ctx.shadowColor = 'rgba(0,0,0,0.08)'
-    ctx.shadowBlur = 6
+    ctx.shadowColor = 'rgba(0,0,0,0.07)'
+    ctx.shadowBlur = 8
+    ctx.shadowOffsetX = 0
     ctx.shadowOffsetY = 2
     ctx.fillStyle = '#ffffff'
-    roundRect(ctx, cardX, cardY, cardW, cardH, 6)
+    roundRect(ctx, cardX, cardY, cardW, cardH, CARD_RADIUS)
     ctx.fill()
     ctx.restore()
 
     // Colored left border
     ctx.fillStyle = ann.color
-    roundRect(ctx, cardX, cardY, BORDER_W, cardH, 3)
+    roundRect(ctx, cardX, cardY, CARD_BORDER, cardH, CARD_RADIUS)
     ctx.fill()
-
-    // Number badge
-    const badgeX = cardX + BORDER_W + 8 + BADGE_R
-    const badgeCY = cardY + cardH / 2
-    ctx.save()
-    ctx.fillStyle = ann.color
-    ctx.beginPath()
-    ctx.arc(badgeX, badgeCY, BADGE_R, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.fillStyle = '#ffffff'
-    ctx.font = `bold ${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(String(i + 1), badgeX, badgeCY)
-    ctx.restore()
 
     // Note text
-    const textX = badgeX + BADGE_R + 8
+    const textX = cardX + CARD_BORDER + CARD_PADDING_H
     const textBlockH = lines.length * LINE_H
     const textStartY = cardY + (cardH - textBlockH) / 2
-    ctx.save()
     ctx.fillStyle = '#1a1a1a'
     ctx.font = `${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     lines.forEach((line, li) => ctx.fillText(line, textX, textStartY + li * LINE_H))
-    ctx.restore()
 
-    // ── Arrow from card left edge into image ──
-    const tx = ann.point.x * imgW
-    const ty = ann.point.y * imgH + imgOffsetY
-    const sx = imgW  // right edge of image = left edge of sidebar
-    const sy = cardY + cardH / 2
+    // Arrow: from right-center of card to dot on image
+    const sx = cardX + cardW          // right edge of card
+    const sy = cardY + cardH / 2      // vertical center of card
+    const tx = imgX + ann.point.x * imgW
+    const ty = imgOffsetY + ann.point.y * imgH
 
     ctx.save()
     ctx.strokeStyle = ann.color
     ctx.lineWidth = 1.5
-    ctx.setLineDash([4, 3])
-    ctx.globalAlpha = 0.75
+    ctx.setLineDash([5, 3])
+    ctx.globalAlpha = 0.85
     ctx.beginPath()
     ctx.moveTo(sx, sy)
     ctx.lineTo(tx, ty)
     ctx.stroke()
     ctx.restore()
 
-    // ── Dot on image ──
+    // Dot on image — same size as the live UI overlay
     ctx.save()
-    // Dark halo for contrast against any background
-    ctx.globalAlpha = 0.35
-    ctx.fillStyle = '#000'
-    ctx.beginPath()
-    ctx.arc(tx, ty, BADGE_R + 2, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.globalAlpha = 1
     ctx.fillStyle = ann.color
+    ctx.globalAlpha = 0.9
     ctx.beginPath()
-    ctx.arc(tx, ty, BADGE_R, 0, Math.PI * 2)
+    ctx.arc(tx, ty, DOT_R, 0, Math.PI * 2)
     ctx.fill()
     ctx.fillStyle = '#ffffff'
-    ctx.font = `bold ${FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(String(i + 1), tx, ty)
+    ctx.globalAlpha = 1
+    ctx.beginPath()
+    ctx.arc(tx, ty, 2, 0, Math.PI * 2)
+    ctx.fill()
     ctx.restore()
 
     cardY += cardH + CARD_MARGIN
@@ -164,7 +142,6 @@ export async function renderAnnotatedImage(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-  if (!text) return ['']
   const words = text.split(' ')
   const lines: string[] = []
   let current = ''
@@ -178,7 +155,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
     }
   }
   if (current) lines.push(current)
-  return lines
+  return lines.length ? lines : ['']
 }
 
 function roundRect(
