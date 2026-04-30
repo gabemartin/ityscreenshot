@@ -3,5 +3,3 @@ out/
 dist/
 .DS_Store
 *.local
-# Compiled Swift binary (built from resources/speech.swift on each machine)
-resources/speech
