@@ -44,6 +44,13 @@ export default function AnnotationCard({
     resizeTextarea()
   }
 
+  // Stable ref callback — inline arrow functions cause infinite loops because
+  // React calls the old ref with null on every render when the function identity changes.
+  const cardRef = useCallback(
+    (el: HTMLDivElement | null) => onRef(annotation.id, el),
+    [annotation.id, onRef],
+  )
+
   const handleMic = (): void => {
     const SpeechRecognition = window.SpeechRecognition ?? window.webkitSpeechRecognition
 
@@ -106,7 +113,7 @@ export default function AnnotationCard({
 
   return (
     <div
-      ref={(el) => onRef(annotation.id, el)}
+      ref={cardRef}
       style={{
         ...styles.card,
         borderLeft: `3px solid ${annotation.color}`,
