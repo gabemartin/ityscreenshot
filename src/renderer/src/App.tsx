@@ -3,7 +3,6 @@ import { Annotation } from './types'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import Canvas from './components/Canvas'
-import { renderAnnotatedImage } from './utils/export'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -23,7 +22,7 @@ export default function App(): React.ReactElement {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [newestId, setNewestId] = useState<string | null>(null)
-  // Track which color to use next (cycle through palette)
+  const [isExporting, setIsExporting] = useState(false)
   const colorIndexRef = useRef(0)
 
   // Refs for viewport-level SVG arrow overlay
@@ -120,18 +119,29 @@ export default function App(): React.ReactElement {
   }, [])
 
   // ── Export actions ───────────────────────────────────────────────────────
+  // Capture the actual rendered window (pixel-perfect, full Retina resolution).
+  // isExporting hides the sidebar footer before the capture fires.
+
+  const capture = useCallback(async (): Promise<string | null> => {
+    setIsExporting(true)
+    // Double rAF ensures the DOM has painted with isExporting=true before capture
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const dataUrl = await window.electronAPI.captureContent()
+    setIsExporting(false)
+    return dataUrl
+  }, [])
 
   const handleSave = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
-    const flat = await renderAnnotatedImage(imageUrl, annotations)
-    window.electronAPI.saveImage(flat)
-  }, [imageUrl, annotations])
+    const dataUrl = await capture()
+    if (dataUrl) window.electronAPI.saveImage(dataUrl)
+  }, [imageUrl, capture])
 
   const handleCopy = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
-    const flat = await renderAnnotatedImage(imageUrl, annotations)
-    window.electronAPI.writeClipboardImage(flat)
-  }, [imageUrl, annotations])
+    const dataUrl = await capture()
+    if (dataUrl) window.electronAPI.writeClipboardImage(dataUrl)
+  }, [imageUrl, capture])
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -181,6 +191,7 @@ export default function App(): React.ReactElement {
           onDelete={handleDelete}
           onAddNote={handleAddNote}
           onCardRef={handleCardRef}
+          isExporting={isExporting}
         />
 
         <Canvas

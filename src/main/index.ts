@@ -148,10 +148,22 @@ function registerIpcHandlers(): void {
 
     if (canceled || !filePath) return
 
-    // Strip the data:image/png;base64, prefix and write buffer
     const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
-    const buffer = Buffer.from(base64, 'base64')
-    fs.writeFileSync(filePath, buffer)
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+  })
+
+  // Capture the rendered window content below the top bar at full Retina resolution
+  ipcMain.handle('capture-content', async () => {
+    if (!mainWindow) return null
+    const { width, height } = mainWindow.getContentBounds()
+    const TOP_BAR = 44
+    const image = await mainWindow.webContents.capturePage({
+      x: 0,
+      y: TOP_BAR,
+      width,
+      height: height - TOP_BAR,
+    })
+    return image.toDataURL()
   })
 }
 

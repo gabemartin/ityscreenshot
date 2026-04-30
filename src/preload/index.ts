@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   saveImage: (dataUrl: string): Promise<void> =>
     ipcRenderer.invoke('dialog:save-image', dataUrl),
+
+  captureContent: (): Promise<string | null> =>
+    ipcRenderer.invoke('capture-content'),
 })

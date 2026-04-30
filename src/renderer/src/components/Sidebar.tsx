@@ -9,6 +9,7 @@ interface SidebarProps {
   onDelete: (id: string) => void
   onAddNote: () => void
   onCardRef: (id: string, el: HTMLDivElement | null) => void
+  isExporting: boolean
 }
 
 export default function Sidebar({
@@ -18,6 +19,7 @@ export default function Sidebar({
   onDelete,
   onAddNote,
   onCardRef,
+  isExporting,
 }: SidebarProps): React.ReactElement {
   return (
     <div style={styles.sidebar}>
@@ -38,11 +40,13 @@ export default function Sidebar({
         )}
       </div>
 
-      <div style={styles.footer}>
-        <button style={styles.addBtn} onClick={onAddNote}>
-          + Add note
-        </button>
-      </div>
+      {!isExporting && (
+        <div style={styles.footer}>
+          <button style={styles.addBtn} onClick={onAddNote}>
+            + Add note
+          </button>
+        </div>
+      )}
     </div>
   )
 }
