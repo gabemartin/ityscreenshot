@@ -4,6 +4,12 @@ import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import Canvas from './components/Canvas'
 
+// ─── Drag helpers ─────────────────────────────────────────────────────────────
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v))
+}
+
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ANNOTATION_COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00']
@@ -31,6 +37,9 @@ export default function App(): React.ReactElement {
   // tick forces a re-render whenever card or image layout changes
   const [tick, setTick] = useState(0)
 
+  // ── Point dragging ───────────────────────────────────────────────────────
+  const draggingIdRef = useRef<string | null>(null)
+
   const handleCardRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) {
       cardElsRef.current.set(id, el)
@@ -38,6 +47,39 @@ export default function App(): React.ReactElement {
       cardElsRef.current.delete(id)
     }
     setTick((t) => t + 1)
+  }, [])
+
+  const handleDotMouseDown = useCallback((e: React.MouseEvent, id: string): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    draggingIdRef.current = id
+    document.body.style.cursor = 'move'
+    document.body.style.userSelect = 'none'
+  }, [])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent): void => {
+      const id = draggingIdRef.current
+      if (!id || !imageRef.current) return
+      const rect = imageRef.current.getBoundingClientRect()
+      const x = clamp01((e.clientX - rect.left) / rect.width)
+      const y = clamp01((e.clientY - rect.top) / rect.height)
+      setAnnotations((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, point: { x, y } } : a))
+      )
+    }
+    const onMouseUp = (): void => {
+      if (!draggingIdRef.current) return
+      draggingIdRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
   }, [])
 
   // Re-render arrows when the image element resizes (e.g. window resize)
@@ -175,6 +217,13 @@ export default function App(): React.ReactElement {
         />
         <circle cx={tx} cy={ty} r={5} fill={ann.color} opacity={0.9} />
         <circle cx={tx} cy={ty} r={2} fill="#fff" />
+        {/* Transparent hit-area that enables drag */}
+        <circle
+          cx={tx} cy={ty} r={10}
+          fill="transparent"
+          style={{ pointerEvents: 'all', cursor: 'move' }}
+          onMouseDown={(e) => handleDotMouseDown(e, ann.id)}
+        />
       </g>
     )
   })
@@ -202,7 +251,8 @@ export default function App(): React.ReactElement {
         />
       </div>
 
-      {/* Full-viewport SVG that draws arrows from sidebar cards to image points */}
+      {/* Full-viewport SVG: arrows + draggable dots. pointerEvents none on the SVG
+          itself so clicks pass through to the canvas; individual dots override to all. */}
       <svg
         style={{
           position: 'fixed',
