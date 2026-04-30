@@ -79,17 +79,20 @@ export default function Canvas({
 const styles: Record<string, React.CSSProperties> = {
   canvasWrapper: {
     flex: 1,
+    minHeight: 0,
     background: 'var(--color-bg-canvas)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'auto',
+    overflowX: 'auto',
+    overflowY: 'hidden',
     padding: 24,
     position: 'relative',
   },
   imageContainer: {
     position: 'relative',
     display: 'inline-block',
+    maxHeight: '100%',
     boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
     borderRadius: 4,
     overflow: 'visible',
