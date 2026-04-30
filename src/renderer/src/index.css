@@ -1,0 +1,60 @@
+/* ─── CSS Variables ─────────────────────────────────────────────────────────── */
+
+:root {
+  --color-bg-canvas: #f5f5f5;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-topbar: #ffffff;
+  --color-border: #e0e0e0;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #888888;
+  --color-text-muted: #bbbbbb;
+  --color-btn-primary-bg: #1a1a1a;
+  --color-btn-primary-text: #ffffff;
+  --color-btn-secondary-bg: #f0f0f0;
+  --color-btn-secondary-text: #1a1a1a;
+  --color-btn-hover: #e4e4e4;
+  --color-card-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  --color-card-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --sidebar-width: 280px;
+  --topbar-height: 44px;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+}
+
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-family);
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: var(--font-family);
+  cursor: pointer;
+  border: none;
+  outline: none;
+}
+
+textarea {
+  font-family: var(--font-family);
+  font-size: 13px;
+  outline: none;
+  resize: none;
+}
