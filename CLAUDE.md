@@ -1,6 +1,6 @@
 # ityscreenshot — Project Context
 
-A macOS desktop app for annotating screenshots to communicate with LLMs. Paste an image, click points on it to create numbered notes, then copy the annotated result back to clipboard as a single flat PNG.
+A macOS desktop app for annotating screenshots to communicate with LLMs. Paste an image, click points on it to create notes, then copy the annotated result back to clipboard as a pixel-perfect screenshot of the UI itself.
 
 **Repo:** https://github.com/gabemartin/ityscreenshot  
 **Local:** `/Users/gabemartin/Projects/ityscreenshot/ityscreenshot`  
@@ -23,24 +23,25 @@ A macOS desktop app for annotating screenshots to communicate with LLMs. Paste a
 - Tray icon (menubar) with Show / Quit — window never closes, always hides to tray
 - Dock hidden while window is hidden, shown when window appears
 - Window: 1100×720 min 800×600, `titleBarStyle: 'hiddenInset'`
-- IPC handlers: `clipboard:read-image`, `clipboard:write-image`, `dialog:save-image`
+- IPC handlers: `clipboard:read-image`, `clipboard:write-image`, `dialog:save-image`, `capture-content`
 
 ### Preload — `src/preload/index.ts`
 Exposes `window.electronAPI` with:
 - `readClipboardImage(): Promise<string | null>`
 - `writeClipboardImage(dataUrl: string): Promise<void>`
 - `saveImage(dataUrl: string): Promise<void>`
+- `captureContent(): Promise<string | null>` — captures the rendered window below the top bar
 
 ### Renderer — `src/renderer/src/`
 
 | File | Role |
 |---|---|
-| `App.tsx` | All state: `imageUrl`, `annotations[]`, arrow SVG overlay, export handlers |
+| `App.tsx` | All state: `imageUrl`, `annotations[]`, `isExporting`, arrow SVG overlay, export handlers |
 | `TopBar.tsx` | Draggable title bar, Save + Copy to Clipboard buttons |
-| `Sidebar.tsx` | 280px left panel, scrollable stack of AnnotationCards |
+| `Sidebar.tsx` | 280px left panel, scrollable stack of AnnotationCards. Hides footer when `isExporting` |
 | `AnnotationCard.tsx` | Colored left border, auto-expanding textarea, delete button |
 | `Canvas.tsx` | Screenshot display, crosshair cursor, click-to-annotate |
-| `utils/export.ts` | Offscreen canvas export pipeline |
+| `utils/export.ts` | Unused canvas pipeline — kept but no longer called |
 
 ### Annotation data model
 ```typescript
@@ -57,22 +58,25 @@ A `position: fixed` full-viewport SVG in `App.tsx`. Each `AnnotationCard` regist
 
 **Critical:** the ref callback in `AnnotationCard` must be wrapped in `useCallback`. Inline arrow functions cause an infinite re-render loop — React detects the new function identity, calls the old ref with `null`, which calls `setTick`, which triggers another render.
 
-### Export — `utils/export.ts`
-Canvas is `naturalWidth + 300px` wide, `max(naturalHeight, sidebar height)` tall.
-- **Left:** screenshot with numbered colored bullseye dots at annotation points
-- **Right:** notes panel (#f8f8f8) with matching numbered card rows — colored left border + badge + wrapped text
-- Dashed lines connecting each card's left edge to its dot on the image
-- Returns PNG dataURL, passed to `writeClipboardImage` or `saveImage`
+### Export — `webContents.capturePage()`
+Export no longer uses the offscreen canvas pipeline. Instead:
+1. `isExporting = true` is set in App state — this hides the "+ Add note" footer in Sidebar
+2. A double `requestAnimationFrame` ensures the DOM has repainted before capture
+3. `captureContent()` IPC call hits `webContents.capturePage({ x: 0, y: 44, width, height - 44 })` in main — skips the 44px top bar
+4. Returns a full Retina-resolution PNG dataURL (2x on Retina displays)
+5. `isExporting = false` restores the footer
+
+The exported image is pixel-perfect — it looks exactly like the live UI (sidebar with annotation cards + screenshot with dots and arrows), captured at native device resolution.
 
 ---
 
 ## Known Loose Ends
 
 - `AnnotationOverlay.tsx` is still in the file tree but **unused** — arrows moved to App-level SVG. Safe to delete.
+- `utils/export.ts` is **unused** — kept but no longer called. Safe to delete.
 - **Tray icon** is a placeholder (borrowed from the `nanna` project). Needs a real icon.
 - Dev console shows harmless `Autofill.enable failed` DevTools errors — disappear when packaged.
 - **Speech-to-text is removed.** `webkitSpeechRecognition` fails in Electron (no bundled Google API key — audio upload hits `net::ERR_FAILED`). A Swift `SFSpeechRecognizer` subprocess was tried and removed for complexity. Revisit later.
-- Export hasn't been tested end-to-end since the sidebar-right redesign.
 
 ---
 
@@ -81,8 +85,8 @@ Canvas is `naturalWidth + 300px` wide, `max(naturalHeight, sidebar height)` tall
 1. **Cmd+V intercepting textareas** — handler checks `e.target.tagName` and skips if focus is in a TEXTAREA/INPUT
 2. **Arrows not connected to cards** — SVG was scoped to image container div; lifted to fixed viewport-level SVG in App.tsx with DOM ref tracking
 3. **Infinite re-render loop on click** — inline ref callback `(el) => onRef(id, el)` created a new function each render; fixed with `useCallback` in AnnotationCard
-4. **Export not including notes** — handlers were passing raw `imageUrl` instead of calling `renderAnnotatedImage(imageUrl, annotations)`
-5. **Export layout** — notes were rendering as a strip below the image; redesigned as sidebar-right panel on the same canvas
+4. **Export not including notes** — handlers were passing raw `imageUrl` instead of the annotated render
+5. **Export layout/resolution** — offscreen canvas approach was low-res and didn't match the UI; replaced with `webContents.capturePage()` for pixel-perfect Retina output
 
 ---
 
