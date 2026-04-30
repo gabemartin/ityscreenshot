@@ -8,6 +8,7 @@ interface SidebarProps {
   onChangeText: (id: string, text: string) => void
   onDelete: (id: string) => void
   onAddNote: () => void
+  onCardRef: (id: string, el: HTMLDivElement | null) => void
 }
 
 export default function Sidebar({
@@ -16,6 +17,7 @@ export default function Sidebar({
   onChangeText,
   onDelete,
   onAddNote,
+  onCardRef,
 }: SidebarProps): React.ReactElement {
   return (
     <div style={styles.sidebar}>
@@ -30,6 +32,7 @@ export default function Sidebar({
               autoFocus={ann.id === newestId}
               onChange={onChangeText}
               onDelete={onDelete}
+              onRef={onCardRef}
             />
           ))
         )}

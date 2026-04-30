@@ -7,6 +7,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  session,
   Tray,
 } from 'electron'
 import path from 'path'
@@ -158,6 +159,11 @@ function registerIpcHandlers(): void {
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  // Grant microphone access for Web Speech API
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'media')
+  })
+
   // Hide from Dock on macOS until the window is visible
   if (process.platform === 'darwin') {
     app.dock.hide()

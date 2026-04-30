@@ -1,21 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Annotation } from '../types'
-import AnnotationOverlay from './AnnotationOverlay'
 
 interface CanvasProps {
   imageUrl: string | null
   annotations: Annotation[]
-  sidebarWidth: number
+  imageRef: React.RefObject<HTMLImageElement>
   onImageClick: (x: number, y: number) => void
 }
 
 export default function Canvas({
   imageUrl,
-  annotations,
-  sidebarWidth,
+  annotations: _annotations,
+  imageRef,
   onImageClick,
 }: CanvasProps): React.ReactElement {
-  const imgRef = useRef<HTMLImageElement>(null)
+  const localRef = useRef<HTMLImageElement>(null)
+  // Use the forwarded ref if provided, otherwise fall back to local ref
+  const imgRef = imageRef ?? localRef
   const [imgSize, setImgSize] = useState<{ width: number; height: number } | null>(null)
 
   // Track rendered image dimensions (changes on resize)
@@ -23,7 +24,7 @@ export default function Canvas({
     const el = imgRef.current
     if (!el) return
     setImgSize({ width: el.offsetWidth, height: el.offsetHeight })
-  }, [])
+  }, [imgRef])
 
   useEffect(() => {
     const observer = new ResizeObserver(updateSize)
@@ -32,7 +33,7 @@ export default function Canvas({
       updateSize()
     }
     return () => observer.disconnect()
-  }, [imageUrl, updateSize])
+  }, [imageUrl, updateSize, imgRef])
 
   const handleClick = (e: React.MouseEvent<HTMLImageElement>): void => {
     const el = imgRef.current
@@ -54,6 +55,9 @@ export default function Canvas({
     )
   }
 
+  // imgSize is tracked so the effect dependencies are satisfied; unused in render
+  void imgSize
+
   return (
     <div style={styles.canvasWrapper}>
       {/* Image */}
@@ -67,27 +71,6 @@ export default function Canvas({
           onLoad={updateSize}
           draggable={false}
         />
-
-        {/* SVG arrow overlay — positioned relative to imageContainer */}
-        {imgSize && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: imgSize.width,
-              height: imgSize.height,
-              pointerEvents: 'none',
-            }}
-          >
-            <AnnotationOverlay
-              annotations={annotations}
-              imageWidth={imgSize.width}
-              imageHeight={imgSize.height}
-              sidebarWidth={0}
-            />
-          </div>
-        )}
       </div>
     </div>
   )

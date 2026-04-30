@@ -6,6 +6,7 @@ interface AnnotationCardProps {
   autoFocus: boolean
   onChange: (id: string, text: string) => void
   onDelete: (id: string) => void
+  onRef: (id: string, el: HTMLDivElement | null) => void
 }
 
 export default function AnnotationCard({
@@ -13,6 +14,7 @@ export default function AnnotationCard({
   autoFocus,
   onChange,
   onDelete,
+  onRef,
 }: AnnotationCardProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isListening, setIsListening] = useState(false)
@@ -104,6 +106,7 @@ export default function AnnotationCard({
 
   return (
     <div
+      ref={(el) => onRef(annotation.id, el)}
       style={{
         ...styles.card,
         borderLeft: `3px solid ${annotation.color}`,

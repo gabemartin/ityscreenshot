@@ -1,94 +1,135 @@
 import { Annotation } from '../types'
 
+const LEGEND_ROW_HEIGHT = 28
+const LEGEND_PADDING = 16
+const LEGEND_FONT_SIZE = 14
+const DOT_RADIUS = 12
+
 /**
- * Renders the screenshot with all annotations flattened onto a canvas,
- * and returns a PNG dataURL of the composite image.
+ * Flattens the screenshot + annotations into a single PNG dataURL.
+ *
+ * On the image: numbered colored dots at each annotation point.
+ * Below the image: a legend strip — one row per annotation showing
+ * the matching colored number badge and the full note text.
  */
 export async function renderAnnotatedImage(
   imageUrl: string,
   annotations: Annotation[]
 ): Promise<string> {
-  // 1. Load the source image
   const img = await loadImage(imageUrl)
   const { naturalWidth: w, naturalHeight: h } = img
 
-  // 2. Create an offscreen canvas at the image's natural resolution
+  const hasNotes = annotations.length > 0
+  const legendHeight = hasNotes
+    ? LEGEND_PADDING + annotations.length * LEGEND_ROW_HEIGHT + LEGEND_PADDING
+    : 0
+
   const canvas = document.createElement('canvas')
   canvas.width = w
-  canvas.height = h
+  canvas.height = h + legendHeight
   const ctx = canvas.getContext('2d')!
 
-  // 3. Draw the base image
+  // ── Draw base image ──
   ctx.drawImage(img, 0, 0, w, h)
 
-  // 4. If no annotations, just return the raw image
-  if (annotations.length === 0) {
-    return canvas.toDataURL('image/png')
-  }
+  if (!hasNotes) return canvas.toDataURL('image/png')
 
-  // 5. Draw each annotation
-  ctx.font = 'bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+  // ── Draw numbered dots on image ──
+  ctx.font = `bold ${LEGEND_FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+  ctx.textBaseline = 'middle'
+  ctx.textAlign = 'center'
 
-  for (const ann of annotations) {
+  annotations.forEach((ann, i) => {
     const cx = ann.point.x * w
     const cy = ann.point.y * h
+    const label = String(i + 1)
 
     ctx.save()
 
-    // ── Outer filled circle (bullseye ring) ──
-    ctx.globalAlpha = 0.9
+    // White halo for visibility against any background
+    ctx.globalAlpha = 0.6
+    ctx.fillStyle = '#000000'
+    ctx.beginPath()
+    ctx.arc(cx, cy, DOT_RADIUS + 2, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Colored dot
+    ctx.globalAlpha = 1
     ctx.fillStyle = ann.color
     ctx.beginPath()
-    ctx.arc(cx, cy, 10, 0, Math.PI * 2)
+    ctx.arc(cx, cy, DOT_RADIUS, 0, Math.PI * 2)
     ctx.fill()
 
-    // ── White inner circle ──
-    ctx.globalAlpha = 1
+    // Number
     ctx.fillStyle = '#ffffff'
-    ctx.beginPath()
-    ctx.arc(cx, cy, 4, 0, Math.PI * 2)
-    ctx.fill()
-
-    // ── Text label (pill) ──
-    if (ann.text.trim() !== '') {
-      const text = ann.text
-      const metrics = ctx.measureText(text)
-      const textWidth = metrics.width
-      const padH = 8
-      const padV = 4
-      const pillW = textWidth + padH * 2
-      const pillH = 14 + padV * 2 // font-size + vertical padding
-      const dotRadius = 10
-      const gap = 6 // gap between dot edge and pill
-
-      // Default: pill to the right of the dot
-      let pillX = cx + dotRadius + gap
-      const pillY = cy - pillH / 2
-
-      // Flip to the left if pill would clip the right edge
-      if (pillX + pillW > w) {
-        pillX = cx - dotRadius - gap - pillW
-      }
-
-      // Draw rounded rect pill
-      ctx.globalAlpha = 1
-      ctx.fillStyle = ann.color
-      roundRect(ctx, pillX, pillY, pillW, pillH, 6)
-      ctx.fill()
-
-      // Draw text inside pill
-      ctx.fillStyle = '#ffffff'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(text, pillX + padH, cy)
-    }
+    ctx.fillText(label, cx, cy)
 
     ctx.restore()
-  }
+  })
+
+  // ── Draw legend strip below image ──
+  ctx.save()
+  ctx.fillStyle = '#f8f8f8'
+  ctx.fillRect(0, h, w, legendHeight)
+
+  // Thin separator line
+  ctx.strokeStyle = '#e0e0e0'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(0, h)
+  ctx.lineTo(w, h)
+  ctx.stroke()
+
+  annotations.forEach((ann, i) => {
+    const rowY = h + LEGEND_PADDING + i * LEGEND_ROW_HEIGHT
+    const centerY = rowY + LEGEND_ROW_HEIGHT / 2
+    const dotX = LEGEND_PADDING + DOT_RADIUS
+
+    // Badge dot
+    ctx.fillStyle = ann.color
+    ctx.beginPath()
+    ctx.arc(dotX, centerY, DOT_RADIUS, 0, Math.PI * 2)
+    ctx.fill()
+
+    // Badge number
+    ctx.fillStyle = '#ffffff'
+    ctx.font = `bold ${LEGEND_FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'center'
+    ctx.fillText(String(i + 1), dotX, centerY)
+
+    // Note text — wrap at canvas width minus left padding and right margin
+    const textX = dotX + DOT_RADIUS + 10
+    const maxTextWidth = w - textX - LEGEND_PADDING
+    ctx.fillStyle = '#1a1a1a'
+    ctx.textAlign = 'left'
+    ctx.font = `${LEGEND_FONT_SIZE}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`
+
+    const noteText = ann.text.trim() || '(no text)'
+    const words = noteText.split(' ')
+    let line = ''
+    let lineCount = 0
+    const lineHeight = 18
+
+    // Single-line only for the legend (keep it compact)
+    // Truncate with ellipsis if too wide
+    let displayText = noteText
+    while (ctx.measureText(displayText).width > maxTextWidth && displayText.length > 0) {
+      displayText = displayText.slice(0, -1)
+    }
+    if (displayText !== noteText) displayText = displayText.slice(0, -1) + '…'
+    void words
+    void line
+    void lineCount
+    void lineHeight
+
+    ctx.fillText(displayText, textX, centerY)
+  })
+
+  ctx.restore()
 
   return canvas.toDataURL('image/png')
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -97,28 +138,4 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     img.onerror = (e) => reject(e)
     img.src = src
   })
-}
-
-/**
- * Draws a rounded rectangle path (does not stroke/fill — caller does that).
- */
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  radius: number
-): void {
-  ctx.beginPath()
-  ctx.moveTo(x + radius, y)
-  ctx.lineTo(x + width - radius, y)
-  ctx.quadraticCurveTo(x + width, y, x + width, y + radius)
-  ctx.lineTo(x + width, y + height - radius)
-  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height)
-  ctx.lineTo(x + radius, y + height)
-  ctx.quadraticCurveTo(x, y + height, x, y + height - radius)
-  ctx.lineTo(x, y + radius)
-  ctx.quadraticCurveTo(x, y, x + radius, y)
-  ctx.closePath()
 }
