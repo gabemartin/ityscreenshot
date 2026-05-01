@@ -79,3 +79,13 @@ textarea {
   outline: none;
   resize: none;
 }
+
+@keyframes canvas-bundle-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.canvas-bundle-building {
+  animation: canvas-bundle-spin 0.75s linear infinite;
+}

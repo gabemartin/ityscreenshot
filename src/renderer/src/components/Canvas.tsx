@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Grip } from 'lucide-react'
+import { Grip, Loader2, PackagePlus } from 'lucide-react'
 import { Annotation } from '../types'
 
 interface CanvasProps {
@@ -8,6 +8,8 @@ interface CanvasProps {
   imageRef: React.RefObject<HTMLImageElement>
   onImageClick: (x: number, y: number) => void
   isDragReady: boolean
+  projectDragState: 'idle' | 'building' | 'ready'
+  onBuildProjectBundleForDrag: () => void
 }
 
 export default function Canvas({
@@ -16,6 +18,8 @@ export default function Canvas({
   imageRef,
   onImageClick,
   isDragReady,
+  projectDragState,
+  onBuildProjectBundleForDrag,
 }: CanvasProps): React.ReactElement {
   const localRef = useRef<HTMLImageElement>(null)
   // Use the forwarded ref if provided, otherwise fall back to local ref
@@ -62,10 +66,18 @@ export default function Canvas({
   // imgSize is tracked so the effect dependencies are satisfied; unused in render
   void imgSize
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>): void => {
+  const handlePngDragStart = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault()
     window.electronAPI.dragOut()
   }
+
+  const handleProjectDragStart = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault()
+    if (typeof window.electronAPI.dragOutProject !== 'function') return
+    window.electronAPI.dragOutProject()
+  }
+
+  const overlayVisible = isHovered || projectDragState === 'building'
 
   return (
     <div style={styles.canvasWrapper}>
@@ -85,16 +97,66 @@ export default function Canvas({
           draggable={false}
         />
 
-        {/* Drag-out handle — shown on hover when temp file is ready */}
+        {/* Project bundle: build icon → loading → drag zip (left of PNG handle) */}
+        {projectDragState === 'building' ? (
+          <div
+            style={{
+              ...styles.dragHandle,
+              ...styles.dragHandleBundle,
+              opacity: overlayVisible ? 1 : 0,
+              cursor: 'default',
+            }}
+            title="Building project bundle…"
+          >
+            <Loader2 size={15} strokeWidth={2} className="canvas-bundle-building" />
+          </div>
+        ) : projectDragState === 'ready' ? (
+          <div
+            draggable
+            onDragStart={handleProjectDragStart}
+            style={{
+              ...styles.dragHandle,
+              ...styles.dragHandleBundle,
+              opacity: overlayVisible ? 1 : 0,
+            }}
+            title="Drag project bundle (.zip) to another app"
+          >
+            <Grip size={15} strokeWidth={2} />
+          </div>
+        ) : (
+          <div
+            style={{
+              ...styles.dragHandle,
+              ...styles.dragHandleBundle,
+              opacity: overlayVisible ? 1 : 0,
+              cursor: 'pointer',
+            }}
+            title="Build project bundle for drag-out"
+          >
+            <button
+              type="button"
+              onClick={(ev) => {
+                ev.stopPropagation()
+                onBuildProjectBundleForDrag()
+              }}
+              style={styles.bundleBuildBtn}
+              aria-label="Build project bundle for drag-out"
+            >
+              <PackagePlus size={15} strokeWidth={2} />
+            </button>
+          </div>
+        )}
+
+        {/* Drag-out PNG — shown on hover when temp file is ready */}
         {isDragReady && (
           <div
             draggable
-            onDragStart={handleDragStart}
+            onDragStart={handlePngDragStart}
             style={{
               ...styles.dragHandle,
-              opacity: isHovered ? 1 : 0,
+              opacity: overlayVisible ? 1 : 0,
             }}
-            title="Drag to another app"
+            title="Drag screenshot to another app"
           >
             <Grip size={15} strokeWidth={2} />
           </div>
@@ -181,5 +243,23 @@ const styles: Record<string, React.CSSProperties> = {
     transition: 'opacity 0.15s ease',
     zIndex: 5,
     userSelect: 'none',
+  },
+  dragHandleBundle: {
+    right: 42,
+    zIndex: 6,
+  },
+  bundleBuildBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: '100%',
+    padding: 0,
+    margin: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    borderRadius: 6,
   },
 }

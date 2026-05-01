@@ -3,7 +3,6 @@ import React from 'react'
 interface TopBarProps {
   onOpenProject: () => void
   onSaveProject: () => void
-  onSave: () => void
   onCopy: () => void
   hasImage: boolean
   copyState?: 'idle' | 'copying' | 'copied'
@@ -12,14 +11,12 @@ interface TopBarProps {
 export default function TopBar({
   onOpenProject,
   onSaveProject,
-  onSave,
   onCopy,
   hasImage,
   copyState = 'idle',
 }: TopBarProps): React.ReactElement {
   const isBusy = copyState === 'copying'
   const isCopied = copyState === 'copied'
-  const copyLabel = isCopied ? 'Copied!' : isBusy ? 'Copying…' : 'Copy to Clipboard'
   const copyActive = hasImage && !isBusy
 
   return (
@@ -42,32 +39,22 @@ export default function TopBar({
         >
           Open Project
         </button>
-        <button
-          style={{
-            ...styles.btn,
-            ...styles.btnSecondary,
-            opacity: hasImage ? 1 : 0.4,
-            cursor: hasImage ? 'pointer' : 'not-allowed',
-          }}
-          onClick={hasImage ? onSaveProject : undefined}
-          title="Save project bundle for reopening later"
-        >
-          Save Project
-        </button>
-        <button
-          style={{
-            ...styles.btn,
-            ...styles.btnSecondary,
-            ...(isCopied ? styles.btnCopied : {}),
-            opacity: copyActive ? 1 : 0.4,
-            cursor: copyActive ? 'pointer' : 'not-allowed',
-            transition: 'background 0.15s, color 0.15s, opacity 0.15s',
-          }}
-          onClick={copyActive ? onCopy : undefined}
-          title="Copy annotated screenshot to clipboard"
-        >
-          {copyLabel}
-        </button>
+        <div style={{ position: 'relative', display: 'inline-flex' }}>
+          <button
+            style={{
+              ...styles.btn,
+              ...styles.btnSecondary,
+              opacity: copyActive ? 1 : 0.4,
+              cursor: copyActive ? 'pointer' : 'not-allowed',
+              transition: 'opacity 0.15s',
+            }}
+            onClick={copyActive ? onCopy : undefined}
+            title="Copy annotated screenshot to clipboard"
+          >
+            Copy Image
+          </button>
+          {isCopied && <div style={styles.copiedTooltip}>Copied!</div>}
+        </div>
         <button
           style={{
             ...styles.btn,
@@ -75,10 +62,10 @@ export default function TopBar({
             opacity: hasImage ? 1 : 0.4,
             cursor: hasImage ? 'pointer' : 'not-allowed',
           }}
-          onClick={hasImage ? onSave : undefined}
-          title="Save annotated screenshot as PNG"
+          onClick={hasImage ? onSaveProject : undefined}
+          title="Save project bundle (.zip)"
         >
-          Save
+          Save Project
         </button>
       </div>
     </div>
@@ -139,8 +126,19 @@ const styles: Record<string, AppCSSProperties> = {
     background: 'var(--color-btn-secondary-bg)',
     color: 'var(--color-btn-secondary-text)',
   },
-  btnCopied: {
+  copiedTooltip: {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: '50%',
+    transform: 'translateX(-50%)',
     background: '#00BFA5',
     color: '#fff',
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '3px 10px',
+    borderRadius: 4,
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    zIndex: 100,
   },
 }

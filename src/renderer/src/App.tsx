@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import type { SaveProjectPayload } from '../../preload/index.d.ts'
 import { Annotation } from './types'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
@@ -369,42 +370,79 @@ export default function App(): React.ReactElement {
     if (dataUrl) window.electronAPI.saveImage(dataUrl)
   }, [imageUrl, capture])
 
-  const handleSaveProject = useCallback(async (): Promise<void> => {
-    if (!imageUrl) return
-    try {
-      const renderedImageDataUrl = await capture()
-      const now = new Date().toISOString()
-      await window.electronAPI.saveProject({
-        project: {
-          version: 1,
-          createdAt: now,
-          updatedAt: now,
-          annotations,
-          llmMapping: {
-            notes: annotations.map((ann, index) => ({
-              index: index + 1,
-              id: ann.id,
-              text: ann.text,
-              point: ann.point,
-              color: ann.color,
-            })),
-          },
-          canvas: imageRef.current
-            ? {
-                width: imageRef.current.naturalWidth,
-                height: imageRef.current.naturalHeight,
-              }
-            : null,
+  const buildSaveProjectPayload = useCallback(async (): Promise<SaveProjectPayload | null> => {
+    if (!imageUrl) return null
+    const renderedImageDataUrl = await capture()
+    const now = new Date().toISOString()
+    return {
+      project: {
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+        annotations,
+        llmMapping: {
+          notes: annotations.map((ann, index) => ({
+            index: index + 1,
+            id: ann.id,
+            text: ann.text,
+            point: ann.point,
+            color: ann.color,
+          })),
         },
-        sourceImageDataUrl: imageUrl,
-        renderedImageDataUrl,
-      })
+        canvas: imageRef.current
+          ? {
+              width: imageRef.current.naturalWidth,
+              height: imageRef.current.naturalHeight,
+            }
+          : null,
+      },
+      sourceImageDataUrl: imageUrl,
+      renderedImageDataUrl,
+    }
+  }, [annotations, capture, imageUrl])
+
+  const handleSaveProject = useCallback(async (): Promise<void> => {
+    try {
+      const payload = await buildSaveProjectPayload()
+      if (!payload) return
+      await window.electronAPI.saveProject(payload)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('Failed to save project bundle:', err)
       window.alert(`Could not save project bundle.\n\n${msg}`)
     }
-  }, [annotations, capture, imageUrl])
+  }, [buildSaveProjectPayload])
+
+  const [projectDragState, setProjectDragState] = useState<'idle' | 'building' | 'ready'>('idle')
+
+  useEffect(() => {
+    setProjectDragState('idle')
+  }, [imageUrl, annotations])
+
+  const handleBuildProjectBundleForDrag = useCallback(async (): Promise<void> => {
+    if (typeof window.electronAPI.writeDragProjectTemp !== 'function') {
+      window.alert(
+        'Project drag needs the latest preload bridge, but this window was started before it loaded.\n\n' +
+          'Quit SpecShot completely (menubar tray → Quit), then run `npm run dev` again.'
+      )
+      return
+    }
+    try {
+      setProjectDragState('building')
+      const payload = await buildSaveProjectPayload()
+      if (!payload) {
+        setProjectDragState('idle')
+        return
+      }
+      await window.electronAPI.writeDragProjectTemp(payload)
+      setProjectDragState('ready')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('Failed to prepare project bundle for drag:', err)
+      window.alert(`Could not build project bundle.\n\n${msg}`)
+      setProjectDragState('idle')
+    }
+  }, [buildSaveProjectPayload])
 
   const handleCopy = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
@@ -481,7 +519,6 @@ export default function App(): React.ReactElement {
       <TopBar
         onOpenProject={handleOpenProject}
         onSaveProject={handleSaveProject}
-        onSave={handleSave}
         onCopy={handleCopy}
         hasImage={!!imageUrl}
         copyState={copyState}
@@ -507,6 +544,8 @@ export default function App(): React.ReactElement {
           imageRef={imageRef}
           onImageClick={handleImageClick}
           isDragReady={isDragReady}
+          projectDragState={projectDragState}
+          onBuildProjectBundleForDrag={handleBuildProjectBundleForDrag}
         />
       </div>
 

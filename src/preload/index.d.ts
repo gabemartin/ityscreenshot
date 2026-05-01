@@ -5,6 +5,8 @@ export interface ElectronAPI {
   captureContent(): Promise<string | null>
   writeDragTemp(dataUrl: string): Promise<string | null>
   dragOut(): void
+  writeDragProjectTemp(payload: SaveProjectPayload): Promise<string | null>
+  dragOutProject(): void
   saveSessionImage(dataUrl: string): Promise<void>
   loadSessionImage(): Promise<string | null>
   saveProject(payload: SaveProjectPayload): Promise<string | null>

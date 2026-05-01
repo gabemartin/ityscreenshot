@@ -158,11 +158,10 @@ Do not ask "what do you want to do with this zip?" as the first response. Instea
 ### Mandatory first-pass workflow
 
 1. Verify the file exists.
-2. List archive contents.
-3. Extract to a temp folder.
-4. Read `project.json` first (authoritative source).
-5. Read `README.md` second (supporting context).
-6. Return a structured interpretation in one response.
+2. Extract to a temp folder.
+3. **Read `rendered-export.png` first using the Read tool** — it shows exactly what each annotation points to (numbered dots, dashed arrows, sidebar cards). This is usually all you need.
+4. Read `project.json` and/or `README.md` only if the rendered image isn't clear enough (ambiguous target, cropped out of frame, etc.).
+5. Return a structured interpretation in one response.
 
 ### Required output format for bundle intake
 
@@ -210,6 +209,27 @@ Use this exact high-level structure (wording can vary):
 3. **Infinite re-render loop on click** — inline ref callback `(el) => onRef(id, el)` created a new function each render; fixed with `useCallback` in AnnotationCard
 4. **Export not including notes** — handlers were passing raw `imageUrl` instead of the annotated render
 5. **Export layout/resolution** — offscreen canvas approach was low-res and didn't match the UI; replaced with `webContents.capturePage()` for pixel-perfect Retina output
+
+---
+
+## Bundle Testing — Fast Process
+
+When asked to test or validate a `.zip` bundle, do this in **two shell calls max**:
+
+**Call 1 — extract and read JSON:**
+```bash
+tmpdir=$(mktemp -d) && unzip -t "$BUNDLE" && unzip -q "$BUNDLE" -d "$tmpdir" && cat "$tmpdir/project.json"
+```
+
+**Call 2 — image dimensions (macOS `sips`, no external deps):**
+```bash
+sips -g pixelWidth -g pixelHeight "$tmpdir/source-image.png" && sips -g pixelWidth -g pixelHeight "$tmpdir/rendered-export.png"
+```
+
+**Rules:**
+- Never use `PIL`/Pillow — not installed. Always use `sips` for image metadata on macOS.
+- Never chain Python heredocs with `&&` on the same line — put shell commands in a separate call.
+- `project.json` Python validation: use `python3 -` with a clean heredoc, **then** run `sips` in a separate call.
 
 ---
 

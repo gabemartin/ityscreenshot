@@ -66,6 +66,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dragOut: (): void =>
     ipcRenderer.send('drag-out'),
 
+  writeDragProjectTemp: (payload: SaveProjectPayload): Promise<string | null> =>
+    ipcRenderer.invoke('write-drag-project-temp', payload),
+
+  dragOutProject: (): void =>
+    ipcRenderer.send('drag-out-project'),
+
   saveSessionImage: (dataUrl: string): Promise<void> =>
     ipcRenderer.invoke('session:save-image', dataUrl),
 

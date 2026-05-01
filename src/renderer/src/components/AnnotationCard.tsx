@@ -97,6 +97,9 @@ export default function AnnotationCard({
           <span style={{ ...styles.cardNumber, color: annotation.color }}>
             {index + 1}
           </span>
+          <span style={styles.cardId}>
+            {annotation.id.slice(-5).toUpperCase()}
+          </span>
         </div>
 
         <button
@@ -153,6 +156,14 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.08em',
     fontVariantNumeric: 'tabular-nums',
     lineHeight: 1,
+  },
+  cardId: {
+    fontFamily: "'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace",
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '0.04em',
+    lineHeight: 1,
+    color: 'var(--color-text-secondary)',
   },
   deleteBtn: {
     width: 20,

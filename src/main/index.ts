@@ -72,6 +72,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
 let dragTempPath: string | null = null
+let dragProjectTempPath: string | null = null
 
 // ─── Dev / prod helper ───────────────────────────────────────────────────────
 
@@ -557,6 +558,24 @@ function registerIpcHandlers(): void {
     return tempPath
   })
 
+  // Write a full project bundle to a temp .zip for drag-out (no save dialog).
+  ipcMain.handle('write-drag-project-temp', (_event, payload: SaveProjectPayload) => {
+    if (!payload?.sourceImageDataUrl) {
+      throw new Error('No source image data in payload')
+    }
+    if (dragProjectTempPath && fs.existsSync(dragProjectTempPath)) {
+      try {
+        fs.unlinkSync(dragProjectTempPath)
+      } catch {
+        /* ignore */
+      }
+    }
+    const tempPath = path.join(os.tmpdir(), `ityscreenshot-drag-project-${Date.now()}.zip`)
+    writeProjectBundle(tempPath, payload)
+    dragProjectTempPath = tempPath
+    return tempPath
+  })
+
   // Persist the current image to userData so it survives a restart.
   const sessionImagePath = path.join(app.getPath('userData'), 'session-image.txt')
 
@@ -575,6 +594,17 @@ function registerIpcHandlers(): void {
     if (!dragTempPath || !fs.existsSync(dragTempPath)) return
     const icon = nativeImage.createFromPath(dragTempPath).resize({ width: 128 })
     event.sender.startDrag({ file: dragTempPath, icon })
+  })
+
+  ipcMain.on('drag-out-project', (event) => {
+    if (!dragProjectTempPath || !fs.existsSync(dragProjectTempPath)) return
+    const iconPath = path.join(__dirname, '../../resources/app_128.png')
+    let icon = nativeImage.createFromPath(iconPath)
+    if (icon.isEmpty() && dragTempPath) {
+      icon = nativeImage.createFromPath(dragTempPath)
+    }
+    if (icon.isEmpty()) return
+    event.sender.startDrag({ file: dragProjectTempPath, icon: icon.resize({ width: 128 }) })
   })
 }
 
@@ -598,6 +628,13 @@ app.on('before-quit', () => {
   isQuitting = true
   if (dragTempPath && fs.existsSync(dragTempPath)) {
     fs.unlinkSync(dragTempPath)
+  }
+  if (dragProjectTempPath && fs.existsSync(dragProjectTempPath)) {
+    try {
+      fs.unlinkSync(dragProjectTempPath)
+    } catch {
+      /* ignore */
+    }
   }
 })
 
