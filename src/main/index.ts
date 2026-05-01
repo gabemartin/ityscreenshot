@@ -177,6 +177,26 @@ This archive contains an annotated screenshot and structured data intended for u
 
 ---
 
+## Intake autopilot (default behavior)
+
+If the user provides this bundle path (or drags this zip into chat), do this automatically:
+
+1. Open and validate the archive.
+2. Read \`project.json\` first.
+3. Return a concise interpretation without asking open-ended questions first.
+
+Expected first response shape:
+
+- Bundle validity and file list
+- Annotation list (index + text)
+- Structured annotation details (id, point, color)
+- Implementation-ready task translation
+- At most one blocking clarifier (only if truly needed)
+
+Do **not** start with "What do you want me to do with this zip?" unless the user explicitly asked for options only.
+
+---
+
 ## Files in this bundle
 
 ${filesSection}
@@ -235,6 +255,31 @@ If you receive only a screenshot (no bundle), or if context is missing, ask the 
 \`\`\`
 
 When a user shares a screenshot without a bundle, or when you need more context about what is being annotated, proactively offer to inspect one of those paths before making assumptions based on the image alone.
+
+---
+
+## Optional kickoff context (copy/paste)
+
+Use this at the start of a new conversation. Any line can be skipped.
+
+\`\`\`md
+Optional quick context for this SpecShot request (reply "skip" to ignore all):
+
+- Bundle path: (example: /specks/foo.zip)
+- Main goal: (what outcome you want)
+- Priority: (must / should / nice)
+- Focus notes: (all, or IDs/# like #2 #4 / ann_...)
+- Constraints: (what must NOT change)
+- Viewports: (desktop/mobile/both + widths if known)
+- Definition of done: (1-3 checks)
+- References: (Figma / ticket / branch / commit)
+\`\`\`
+
+Ultra-light version:
+
+\`\`\`md
+Optional: bundle path + goal + priority + constraints. Reply "skip" to proceed now.
+\`\`\`
 
 ---
 
