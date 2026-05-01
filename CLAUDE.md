@@ -8,6 +8,24 @@ A macOS desktop app for annotating screenshots to communicate with LLMs. Paste a
 
 ---
 
+## Assistant Communication Rule
+
+Use **light caveman syntax** in assistant chat replies.
+
+- Keep sentences short.
+- Use simple words.
+- Cut filler.
+- Say action first.
+- Stay clear and technically correct.
+- Keep code, commands, paths, errors exact (no caveman rewrite inside code text).
+
+### Do / Don't
+
+- Do: `me check bug now. me run tests next.`
+- Don't: `I will now proceed with a comprehensive investigation of the issue and report back with findings.`
+
+---
+
 ## Tech Stack
 
 - Electron 33 + electron-vite + React 18 + TypeScript
@@ -23,7 +41,7 @@ A macOS desktop app for annotating screenshots to communicate with LLMs. Paste a
 - Tray icon (menubar) with Show / Quit — window never closes, always hides to tray
 - Dock hidden while window is hidden, shown when window appears
 - Window: 1100×720 min 800×600, `titleBarStyle: 'hiddenInset'`
-- IPC handlers: `clipboard:read-image`, `clipboard:write-image`, `dialog:save-image`, `capture-content`
+- IPC handlers: `clipboard:read-image`, `clipboard:write-image`, `dialog:save-image`, `capture-content`, `dialog:save-project`, `dialog:open-project`, `project:open-path`
 
 ### Preload — `src/preload/index.ts`
 Exposes `window.electronAPI` with:
@@ -31,13 +49,21 @@ Exposes `window.electronAPI` with:
 - `writeClipboardImage(dataUrl: string): Promise<void>`
 - `saveImage(dataUrl: string): Promise<void>`
 - `captureContent(): Promise<string | null>` — captures the rendered window below the top bar
+- `writeDragTemp(dataUrl: string): Promise<string | null>` — writes temp PNG to disk for drag-out
+- `dragOut(): void` — initiates native OS drag from the temp file
+- `saveSessionImage(dataUrl: string): Promise<void>` — persists the image to `<userData>/session-image.txt`
+- `loadSessionImage(): Promise<string | null>` — reads back the persisted image on startup
+- `saveProject(payload): Promise<string | null>` — saves a `.zip` project bundle via native save dialog
+- `openProject(): Promise<OpenProjectResult | null>` — opens a bundle via native open dialog
+- `openProjectFromPath(filePath): Promise<OpenProjectResult | null>` — opens a bundle from a known path (drag-drop)
+- `getPathForFile(file: File): string` — wraps `webUtils.getPathForFile`; required to get the native path of a dropped file when `contextIsolation: true`
 
 ### Renderer — `src/renderer/src/`
 
 | File | Role |
 |---|---|
-| `App.tsx` | All state: `imageUrl`, `annotations[]`, `isExporting`, arrow SVG overlay, export handlers, drag-and-drop |
-| `TopBar.tsx` | Draggable title bar, Save + Copy to Clipboard buttons |
+| `App.tsx` | All state: `imageUrl`, `annotations[]`, `isExporting`, arrow SVG overlay, export handlers, drag-and-drop, project save/open/hydrate |
+| `TopBar.tsx` | Draggable title bar, Open Project + Save Project + Copy to Clipboard + Save (PNG) buttons |
 | `Sidebar.tsx` | 280px left panel, scrollable stack of AnnotationCards. Hides footer when `isExporting` |
 | `AnnotationCard.tsx` | Colored left border, auto-expanding textarea, delete button |
 | `Canvas.tsx` | Screenshot display, crosshair cursor, click-to-annotate |
@@ -61,8 +87,10 @@ A `position: fixed` full-viewport SVG in `App.tsx`. Each `AnnotationCard` regist
 ### Image loading
 There are two ways to load an image — both call the shared `loadImage(dataUrl)` helper in `App.tsx` which sets `imageUrl`, clears annotations, and resets `newestId`.
 
-- **Clipboard paste** — `loadFromClipboard()` calls the `clipboard:read-image` IPC handler. Triggered on mount and by `⌘V` (skipped when focus is in a TEXTAREA/INPUT).
+- **Clipboard paste** — `loadFromClipboard()` calls the `clipboard:read-image` IPC handler. Triggered on mount (as fallback) and by `⌘V` (skipped when focus is in a TEXTAREA/INPUT).
 - **Drag-and-drop** — `dragenter`/`dragover`/`dragleave`/`drop` handlers on the root `<div>`. A `dragDepthRef` counter prevents the overlay from flickering as the cursor moves across child elements. On drop, the first image file is read via `FileReader.readAsDataURL` and passed to `loadImage`. A full-screen frosted overlay (`isDroppingFile` state) is shown while an image file is hovering over the window.
+
+Every call to `loadImage` also fires `window.electronAPI.saveSessionImage(dataUrl)`, which writes the data URL as plain text to `<userData>/session-image.txt` in the main process. On mount the renderer calls `loadSessionImage()` first; if the file exists it restores directly from there (no clipboard read needed). Only if the file is absent does it fall back to `loadFromClipboard()`. This ensures both pasted and dragged images survive a refresh or full restart.
 Export no longer uses the offscreen canvas pipeline. Instead:
 1. `isExporting = true` is set in App state — this hides the "+ Add note" footer in Sidebar
 2. A double `requestAnimationFrame` ensures the DOM has repainted before capture
@@ -71,6 +99,63 @@ Export no longer uses the offscreen canvas pipeline. Instead:
 5. `isExporting = false` restores the footer
 
 The exported image is pixel-perfect — it looks exactly like the live UI (sidebar with annotation cards + screenshot with dots and arrows), captured at native device resolution.
+
+---
+
+## Project Bundle Format (`.zip` / `.speck`)
+
+### Save / Open flow
+- **Save Project** button → `handleSaveProject()` in `App.tsx` → `dialog:save-project` IPC → `writeProjectBundle()` in main
+- **Open Project** button → `dialog:open-project` IPC → `parseProjectBundle()` → `hydrateFromProject()` in renderer
+- **Drag `.zip` or `.speck` onto app** → `getPathForFile(file)` (preload, uses `webUtils`) → `project:open-path` IPC → `hydrateFromProject()`
+- Default save format is `.zip` (chat-upload compatible). App also imports `.speck`.
+
+### Bundle contents
+Every saved bundle contains:
+| File | Description |
+|---|---|
+| `README.md` | LLM instructions (generated dynamically, includes annotation table) |
+| `project.json` | Versioned manifest — authoritative source of truth |
+| `source-image.*` | Original un-annotated screenshot |
+| `rendered-export.*` | Composed view with dots, dashed arrows, and sidebar cards (optional) |
+
+### `project.json` schema
+```typescript
+{
+  version: 1,
+  createdAt: string,        // ISO 8601
+  updatedAt: string,
+  annotations: Annotation[],  // raw array
+  llmMapping: {
+    notes: Array<{
+      index: number,          // 1-based order number — positional, may change on reorder
+      id: string,             // stable unique ID — never changes (format: ann_TIMESTAMP_RANDOM)
+      text: string,
+      point: { x: number, y: number },  // 0–1 fractions, (0,0)=top-left
+      color: string,
+    }>
+  },
+  canvas: { width: number, height: number } | null,
+  assets: {
+    sourceImage: { path: string, mimeType: string },
+    renderedImage?: { path: string, mimeType: string },
+  }
+}
+```
+
+### Annotation reference conventions
+- **Order number** (`index`, 1-based): use for quick human-facing tasks ("fix note 2"). Positional — changes if annotations are reordered.
+- **Annotation ID** (`id`): use for tracking across sessions, renames, reorders. Stable — assigned once, never changes.
+
+### LLM README (`README.md` inside bundle)
+Generated by `buildBundleReadme()` in `src/main/index.ts`. Written as the first file in every ZIP. Contains:
+- Plain-text annotation summary table (index, ID, coordinates, color, text)
+- Coordinate system explanation
+- Order number vs ID guidance
+- `/specks` / `/speck` / `/spec` folder convention
+- `project.json` schema reference
+
+**The `/specks` convention:** Every project using SpecShot is assumed to store bundles at one of `/specks/`, `/speck/`, or `/spec/` relative to the project root. When an LLM receives only a screenshot (no bundle), or when context is incomplete, it should ask the user to share the bundle or point to one of those folders.
 
 ---
 

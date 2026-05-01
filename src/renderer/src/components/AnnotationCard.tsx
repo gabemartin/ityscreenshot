@@ -8,6 +8,28 @@ interface AnnotationCardProps {
   onChange: (id: string, text: string) => void
   onDelete: (id: string) => void
   onRef: (id: string, el: HTMLDivElement | null) => void
+  isDragging: boolean
+  dragDeltaY: number
+  onGripMouseDown: (e: React.MouseEvent) => void
+}
+
+function GripHandle(): React.ReactElement {
+  return (
+    <svg
+      width="8"
+      height="14"
+      viewBox="0 0 8 14"
+      fill="currentColor"
+      style={{ display: 'block', flexShrink: 0 }}
+    >
+      <circle cx="2" cy="2.5" r="1.4" />
+      <circle cx="6" cy="2.5" r="1.4" />
+      <circle cx="2" cy="7" r="1.4" />
+      <circle cx="6" cy="7" r="1.4" />
+      <circle cx="2" cy="11.5" r="1.4" />
+      <circle cx="6" cy="11.5" r="1.4" />
+    </svg>
+  )
 }
 
 export default function AnnotationCard({
@@ -17,6 +39,9 @@ export default function AnnotationCard({
   onChange,
   onDelete,
   onRef,
+  isDragging,
+  dragDeltaY,
+  onGripMouseDown,
 }: AnnotationCardProps): React.ReactElement {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -46,19 +71,43 @@ export default function AnnotationCard({
   return (
     <div
       ref={cardRef}
-      style={{ ...styles.card, border: `1px solid ${annotation.color}` }}
+      data-annotation-card
+      style={{
+        ...styles.card,
+        border: `1px solid ${annotation.color}`,
+        // translateY follows the mouse; getBoundingClientRect() reflects this,
+        // so App's arrow overlay redraws to the card's actual visual position.
+        transform: isDragging ? `translateY(${dragDeltaY}px)` : undefined,
+        zIndex: isDragging ? 100 : 'auto',
+        boxShadow: isDragging
+          ? '0 8px 24px rgba(0,0,0,0.35)'
+          : 'var(--color-card-shadow)',
+        userSelect: isDragging ? 'none' : undefined,
+      }}
     >
-      <div style={{ ...styles.cardNumber, color: annotation.color }}>
-        {index + 1}
+      <div style={styles.cardTop}>
+        <div style={styles.handleAndNumber}>
+          <span
+            style={{ ...styles.grip, cursor: isDragging ? 'grabbing' : 'grab' }}
+            onMouseDown={onGripMouseDown}
+            title="Drag to reorder"
+          >
+            <GripHandle />
+          </span>
+          <span style={{ ...styles.cardNumber, color: annotation.color }}>
+            {index + 1}
+          </span>
+        </div>
+
+        <button
+          style={styles.deleteBtn}
+          onClick={() => onDelete(annotation.id)}
+          title="Remove annotation"
+          aria-label="Delete annotation"
+        >
+          ×
+        </button>
       </div>
-      <button
-        style={styles.deleteBtn}
-        onClick={() => onDelete(annotation.id)}
-        title="Remove annotation"
-        aria-label="Delete annotation"
-      >
-        ×
-      </button>
 
       <textarea
         ref={textareaRef}
@@ -78,13 +127,34 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'var(--color-bg-card)',
     borderRadius: 6,
     boxShadow: 'var(--color-card-shadow)',
-    padding: '10px 10px 10px 12px',
+    padding: '8px 10px 10px 10px',
     marginBottom: 8,
   },
+  cardTop: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  handleAndNumber: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  grip: {
+    color: 'var(--color-text-muted)',
+    opacity: 0.5,
+    display: 'flex',
+    alignItems: 'center',
+  },
+  cardNumber: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    fontVariantNumeric: 'tabular-nums',
+    lineHeight: 1,
+  },
   deleteBtn: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
     width: 20,
     height: 20,
     borderRadius: 4,
@@ -96,13 +166,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     cursor: 'pointer',
-  },
-  cardNumber: {
-    fontSize: 10,
-    fontWeight: 700,
-    letterSpacing: '0.08em',
-    marginBottom: 4,
-    fontVariantNumeric: 'tabular-nums',
+    flexShrink: 0,
   },
   textarea: {
     width: '100%',
@@ -112,8 +176,8 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     lineHeight: 1.5,
     minHeight: 40,
-    paddingRight: 20,
     overflow: 'hidden',
     resize: 'none',
+    cursor: 'text',
   },
 }

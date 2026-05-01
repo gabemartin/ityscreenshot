@@ -22,6 +22,31 @@ function generateId(): string {
   return `ann_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
 }
 
+interface ProjectOpenResult {
+  project: {
+    version: number
+    annotations: Annotation[]
+  }
+  sourceImageDataUrl: string
+}
+
+function isBundleFileName(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.zip') || lower.endsWith('.speck')
+}
+
+function isValidAnnotation(input: unknown): input is Annotation {
+  if (typeof input !== 'object' || !input) return false
+  const ann = input as Annotation
+  return (
+    typeof ann.id === 'string' &&
+    typeof ann.text === 'string' &&
+    typeof ann.color === 'string' &&
+    typeof ann.point?.x === 'number' &&
+    typeof ann.point?.y === 'number'
+  )
+}
+
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App(): React.ReactElement {
@@ -109,6 +134,8 @@ export default function App(): React.ReactElement {
     setImageUrl(dataUrl)
     setAnnotations([])
     setNewestId(null)
+    // Persist so the image survives a refresh or restart
+    window.electronAPI.saveSessionImage(dataUrl).catch(console.error)
   }, [])
 
   const loadFromClipboard = useCallback(async (): Promise<void> => {
@@ -120,10 +147,22 @@ export default function App(): React.ReactElement {
     }
   }, [loadImage])
 
-  // On mount: try to load any image already in the clipboard
+  // On mount: restore from last session first; fall back to whatever is on the clipboard
   useEffect(() => {
-    loadFromClipboard()
-  }, [loadFromClipboard])
+    ;(async (): Promise<void> => {
+      try {
+        const session = await window.electronAPI.loadSessionImage()
+        if (session) {
+          setImageUrl(session)
+          return
+        }
+      } catch (err) {
+        console.error('Failed to load session image:', err)
+      }
+      loadFromClipboard()
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── Drag-and-drop image into window ─────────────────────────────────────
 
@@ -134,7 +173,7 @@ export default function App(): React.ReactElement {
 
   const handleDragEnter = useCallback((e: React.DragEvent): void => {
     e.preventDefault()
-    if (Array.from(e.dataTransfer.items).some((i) => i.kind === 'file' && i.type.startsWith('image/'))) {
+    if (Array.from(e.dataTransfer.items).some((i) => i.kind === 'file')) {
       dragDepthRef.current++
       setIsDroppingFile(true)
     }
@@ -151,11 +190,63 @@ export default function App(): React.ReactElement {
     if (dragDepthRef.current === 0) setIsDroppingFile(false)
   }, [])
 
+  const hydrateFromProject = useCallback((result: ProjectOpenResult): void => {
+    if (!result?.sourceImageDataUrl || !Array.isArray(result.project?.annotations)) {
+      throw new Error('Invalid project bundle payload')
+    }
+    const safeAnnotations = result.project.annotations
+      .filter(isValidAnnotation)
+      .map((ann) => ({
+        ...ann,
+        point: { x: clamp01(ann.point.x), y: clamp01(ann.point.y) },
+      }))
+
+    setImageUrl(result.sourceImageDataUrl)
+    setAnnotations(safeAnnotations)
+    setNewestId(null)
+    colorIndexRef.current = safeAnnotations.length % ANNOTATION_COLORS.length
+    setTick((t) => t + 1)
+    window.electronAPI.saveSessionImage(result.sourceImageDataUrl).catch(console.error)
+  }, [])
+
+  const handleOpenProject = useCallback(async (): Promise<void> => {
+    try {
+      const result = await window.electronAPI.openProject()
+      if (!result) return
+      hydrateFromProject(result as ProjectOpenResult)
+    } catch (err) {
+      console.error('Failed to open project bundle:', err)
+      window.alert('Could not open this project bundle.')
+    }
+  }, [hydrateFromProject])
+
+  const openProjectFromPath = useCallback(async (filePath: string): Promise<void> => {
+    try {
+      const result = await window.electronAPI.openProjectFromPath(filePath)
+      if (!result) return
+      hydrateFromProject(result as ProjectOpenResult)
+    } catch (err) {
+      console.error('Failed to open dropped project bundle:', err)
+      window.alert('Could not open the dropped project bundle.')
+    }
+  }, [hydrateFromProject])
+
   const handleDrop = useCallback((e: React.DragEvent): void => {
     e.preventDefault()
     dragDepthRef.current = 0
     setIsDroppingFile(false)
-    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'))
+    const files = Array.from(e.dataTransfer.files)
+    const bundleFile = files.find((f) => isBundleFileName(f.name))
+    if (bundleFile) {
+      const droppedPath = window.electronAPI.getPathForFile(bundleFile)
+      if (!droppedPath) {
+        window.alert('Unable to access dropped project bundle path.')
+        return
+      }
+      openProjectFromPath(droppedPath)
+      return
+    }
+    const file = files.find((f) => f.type.startsWith('image/'))
     if (!file) return
     const reader = new FileReader()
     reader.onload = (ev): void => {
@@ -163,7 +254,7 @@ export default function App(): React.ReactElement {
       if (typeof result === 'string') loadImage(result)
     }
     reader.readAsDataURL(file)
-  }, [loadImage])
+  }, [loadImage, openProjectFromPath])
 
   // Cmd+V keyboard shortcut
   useEffect(() => {
@@ -211,6 +302,20 @@ export default function App(): React.ReactElement {
   const handleDelete = useCallback((id: string): void => {
     setAnnotations((prev) => prev.filter((a) => a.id !== id))
     setNewestId((prev) => (prev === id ? null : prev))
+  }, [])
+
+  const handleDragMove = useCallback((): void => setTick((t) => t + 1), [])
+
+  const handleReorder = useCallback((fromIndex: number, insertBefore: number): void => {
+    setAnnotations((prev) => {
+      const next = [...prev]
+      const [item] = next.splice(fromIndex, 1)
+      const targetIndex = insertBefore > fromIndex ? insertBefore - 1 : insertBefore
+      next.splice(targetIndex, 0, item)
+      return next
+    })
+    // Bump tick after paint so arrows recalculate from the new card positions
+    requestAnimationFrame(() => setTick((t) => t + 1))
   }, [])
 
   // ── Export actions ───────────────────────────────────────────────────────
@@ -264,9 +369,46 @@ export default function App(): React.ReactElement {
     if (dataUrl) window.electronAPI.saveImage(dataUrl)
   }, [imageUrl, capture])
 
+  const handleSaveProject = useCallback(async (): Promise<void> => {
+    if (!imageUrl) return
+    try {
+      const renderedImageDataUrl = await capture()
+      const now = new Date().toISOString()
+      await window.electronAPI.saveProject({
+        project: {
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          annotations,
+          llmMapping: {
+            notes: annotations.map((ann, index) => ({
+              index: index + 1,
+              id: ann.id,
+              text: ann.text,
+              point: ann.point,
+              color: ann.color,
+            })),
+          },
+          canvas: imageRef.current
+            ? {
+                width: imageRef.current.naturalWidth,
+                height: imageRef.current.naturalHeight,
+              }
+            : null,
+        },
+        sourceImageDataUrl: imageUrl,
+        renderedImageDataUrl,
+      })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('Failed to save project bundle:', err)
+      window.alert(`Could not save project bundle.\n\n${msg}`)
+    }
+  }, [annotations, capture, imageUrl])
+
   const handleCopy = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
-    setCopyState('Copying')
+    setCopyState('copying')
     const dataUrl = await capture()
     if (dataUrl) {
       await window.electronAPI.writeClipboardImage(dataUrl)
@@ -332,11 +474,18 @@ export default function App(): React.ReactElement {
         <div style={styles.dropOverlay}>
           <div style={styles.dropBox}>
             <div style={styles.dropIcon}>↓</div>
-            <p style={styles.dropLabel}>Drop image to open</p>
+            <p style={styles.dropLabel}>Drop image or project bundle to open</p>
           </div>
         </div>
       )}
-      <TopBar onSave={handleSave} onCopy={handleCopy} hasImage={!!imageUrl} copyState={copyState} />
+      <TopBar
+        onOpenProject={handleOpenProject}
+        onSaveProject={handleSaveProject}
+        onSave={handleSave}
+        onCopy={handleCopy}
+        hasImage={!!imageUrl}
+        copyState={copyState}
+      />
 
       <div style={styles.body}>
         <Sidebar
@@ -347,6 +496,8 @@ export default function App(): React.ReactElement {
           onAddNote={handleAddNote}
           onCardRef={handleCardRef}
           onScroll={handleSidebarScroll}
+          onReorder={handleReorder}
+          onDragMove={handleDragMove}
           isExporting={isExporting}
         />
 

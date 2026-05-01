@@ -13,6 +13,7 @@
     "dist": "electron-builder"
   },
   "dependencies": {
+    "adm-zip": "^0.5.17",
     "lucide-react": "^1.14.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

@@ -1,13 +1,22 @@
 import React from 'react'
 
 interface TopBarProps {
+  onOpenProject: () => void
+  onSaveProject: () => void
   onSave: () => void
   onCopy: () => void
   hasImage: boolean
   copyState?: 'idle' | 'copying' | 'copied'
 }
 
-export default function TopBar({ onSave, onCopy, hasImage, copyState = 'idle' }: TopBarProps): React.ReactElement {
+export default function TopBar({
+  onOpenProject,
+  onSaveProject,
+  onSave,
+  onCopy,
+  hasImage,
+  copyState = 'idle',
+}: TopBarProps): React.ReactElement {
   const isBusy = copyState === 'copying'
   const isCopied = copyState === 'copied'
   const copyLabel = isCopied ? 'Copied!' : isBusy ? 'Copying…' : 'Copy to Clipboard'
@@ -23,6 +32,28 @@ export default function TopBar({ onSave, onCopy, hasImage, copyState = 'idle' }:
 
       {/* Action buttons */}
       <div style={styles.actions}>
+        <button
+          style={{
+            ...styles.btn,
+            ...styles.btnSecondary,
+          }}
+          onClick={onOpenProject}
+          title="Open project bundle (.zip or .speck)"
+        >
+          Open Project
+        </button>
+        <button
+          style={{
+            ...styles.btn,
+            ...styles.btnSecondary,
+            opacity: hasImage ? 1 : 0.4,
+            cursor: hasImage ? 'pointer' : 'not-allowed',
+          }}
+          onClick={hasImage ? onSaveProject : undefined}
+          title="Save project bundle for reopening later"
+        >
+          Save Project
+        </button>
         <button
           style={{
             ...styles.btn,
