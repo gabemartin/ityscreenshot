@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { SaveProjectPayload } from '../../preload/index.d.ts'
-import { Annotation } from './types'
+import { Annotation, BoxAnnotation, BoxRect } from './types'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import Canvas from './components/Canvas'
+import type { CropRect } from './components/ImageCropOverlay'
+import { cropImage } from './utils/cropImage'
 
 // ─── Drag helpers ─────────────────────────────────────────────────────────────
 
@@ -56,7 +58,14 @@ export default function App(): React.ReactElement {
   const [newestId, setNewestId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>('idle')
+  const [cropMode, setCropMode] = useState<'idle' | 'active'>('idle')
   const colorIndexRef = useRef(0)
+
+  // ── Box annotations ──────────────────────────────────────────────────────
+  const [boxes, setBoxes] = useState<BoxAnnotation[]>([])
+  const [boxColorIdx, setBoxColorIdx] = useState(0)
+  const [drawMode, setDrawMode] = useState<'annotate' | 'box'>('annotate')
+  const nextBoxColor = ANNOTATION_COLORS[boxColorIdx % ANNOTATION_COLORS.length]
 
   // Refs for viewport-level SVG arrow overlay
   const cardElsRef = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -135,6 +144,9 @@ export default function App(): React.ReactElement {
     setImageUrl(dataUrl)
     setAnnotations([])
     setNewestId(null)
+    setBoxes([])
+    setBoxColorIdx(0)
+    setDrawMode('annotate')
     // Persist so the image survives a refresh or restart
     window.electronAPI.saveSessionImage(dataUrl).catch(console.error)
   }, [])
@@ -319,6 +331,29 @@ export default function App(): React.ReactElement {
     requestAnimationFrame(() => setTick((t) => t + 1))
   }, [])
 
+  // ── Box actions ──────────────────────────────────────────────────────────
+
+  const handleAddBox = useCallback((box: BoxAnnotation): void => {
+    setBoxes((prev) => [...prev, box])
+    setBoxColorIdx((i) => i + 1)
+  }, [])
+
+  const handleUpdateBox = useCallback((id: string, rect: BoxRect): void => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, rect } : b)))
+  }, [])
+
+  const handleDeleteBox = useCallback((id: string): void => {
+    setBoxes((prev) => prev.filter((b) => b.id !== id))
+  }, [])
+
+  const handleBoxColorChange = useCallback((id: string, color: string): void => {
+    setBoxes((prev) => prev.map((b) => (b.id === id ? { ...b, color } : b)))
+  }, [])
+
+  const handleDrawModeChange = useCallback((mode: 'annotate' | 'box'): void => {
+    setDrawMode(mode)
+  }, [])
+
   // ── Export actions ───────────────────────────────────────────────────────
   // Capture the actual rendered window (pixel-perfect, full Retina resolution).
   // isExporting hides the sidebar footer before the capture fires.
@@ -362,7 +397,7 @@ export default function App(): React.ReactElement {
     return () => {
       if (dragDebounceRef.current) clearTimeout(dragDebounceRef.current)
     }
-  }, [imageUrl, annotations, capture])
+  }, [imageUrl, annotations, boxes, capture])
 
   const handleSave = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
@@ -457,6 +492,39 @@ export default function App(): React.ReactElement {
     }
   }, [imageUrl, capture])
 
+  // ── Crop ─────────────────────────────────────────────────────────────────
+
+  const handleStartCrop = useCallback((): void => {
+    setCropMode('active')
+  }, [])
+
+  const handleCancelCrop = useCallback((): void => {
+    setCropMode('idle')
+  }, [])
+
+  const handleApplyCrop = useCallback(
+    async (rect: CropRect): Promise<void> => {
+      const img = imageRef.current
+      if (!imageUrl || !img) return
+      try {
+        const displaySize = { width: img.offsetWidth, height: img.offsetHeight }
+        const naturalSize = { width: img.naturalWidth, height: img.naturalHeight }
+        const result = await cropImage(imageUrl, rect, displaySize, naturalSize, annotations)
+        setImageUrl(result.dataUrl)
+        setAnnotations(result.annotations)
+        setNewestId(null)
+        setTick((t) => t + 1)
+        window.electronAPI.saveSessionImage(result.dataUrl).catch(console.error)
+      } catch (err) {
+        console.error('Crop failed:', err)
+        window.alert('Crop failed. Please try again.')
+      } finally {
+        setCropMode('idle')
+      }
+    },
+    [imageUrl, annotations],
+  )
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   // Build SVG arrows from card DOM positions to image annotation points.
@@ -483,7 +551,7 @@ export default function App(): React.ReactElement {
         <line
           x1={sx} y1={sy} x2={tx} y2={ty}
           stroke={ann.color}
-          strokeWidth={1.5}
+          strokeWidth={3.5}
           strokeDasharray="5 3"
           opacity={0.85}
         />
@@ -520,8 +588,10 @@ export default function App(): React.ReactElement {
         onOpenProject={handleOpenProject}
         onSaveProject={handleSaveProject}
         onCopy={handleCopy}
+        onCrop={handleStartCrop}
         hasImage={!!imageUrl}
         copyState={copyState}
+        cropMode={cropMode}
       />
 
       <div style={styles.body}>
@@ -546,24 +616,36 @@ export default function App(): React.ReactElement {
           isDragReady={isDragReady}
           projectDragState={projectDragState}
           onBuildProjectBundleForDrag={handleBuildProjectBundleForDrag}
+          cropMode={cropMode}
+          onApplyCrop={handleApplyCrop}
+          onCancelCrop={handleCancelCrop}
+          boxes={boxes}
+          drawMode={drawMode}
+          nextBoxColor={nextBoxColor}
+          onDrawModeChange={handleDrawModeChange}
+          onAddBox={handleAddBox}
+          onUpdateBox={handleUpdateBox}
+          onDeleteBox={handleDeleteBox}
+          onBoxColorChange={handleBoxColorChange}
         />
       </div>
 
-      {/* Full-viewport SVG: arrows + draggable dots. pointerEvents none on the SVG
-          itself so clicks pass through to the canvas; individual dots override to all. */}
-      <svg
-        style={{
-          position: 'fixed',
-          inset: 0,
-          width: '100vw',
-          height: '100vh',
-          pointerEvents: 'none',
-          zIndex: 10,
-          overflow: 'visible',
-        }}
-      >
-        {arrowElements}
-      </svg>
+      {/* Full-viewport SVG: arrows + draggable dots. Hidden while in crop mode. */}
+      {cropMode === 'idle' && (
+        <svg
+          style={{
+            position: 'fixed',
+            inset: 0,
+            width: '100vw',
+            height: '100vh',
+            pointerEvents: 'none',
+            zIndex: 10,
+            overflow: 'visible',
+          }}
+        >
+          {arrowElements}
+        </svg>
+      )}
     </div>
   )
 }

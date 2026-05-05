@@ -4,20 +4,25 @@ interface TopBarProps {
   onOpenProject: () => void
   onSaveProject: () => void
   onCopy: () => void
+  onCrop: () => void
   hasImage: boolean
   copyState?: 'idle' | 'copying' | 'copied'
+  cropMode?: 'idle' | 'active'
 }
 
 export default function TopBar({
   onOpenProject,
   onSaveProject,
   onCopy,
+  onCrop,
   hasImage,
   copyState = 'idle',
+  cropMode = 'idle',
 }: TopBarProps): React.ReactElement {
   const isBusy = copyState === 'copying'
   const isCopied = copyState === 'copied'
-  const copyActive = hasImage && !isBusy
+  const copyActive = hasImage && !isBusy && cropMode === 'idle'
+  const cropActive = hasImage && cropMode === 'idle'
 
   return (
     <div style={styles.topBar}>
@@ -38,6 +43,18 @@ export default function TopBar({
           title="Open project bundle (.zip or .speck)"
         >
           Open Project
+        </button>
+        <button
+          style={{
+            ...styles.btn,
+            ...styles.btnSecondary,
+            opacity: cropActive ? 1 : 0.4,
+            cursor: cropActive ? 'pointer' : 'not-allowed',
+          }}
+          onClick={cropActive ? onCrop : undefined}
+          title="Crop the image (notes outside the crop are removed)"
+        >
+          Crop
         </button>
         <div style={{ position: 'relative', display: 'inline-flex' }}>
           <button

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Grip, Loader2, PackagePlus } from 'lucide-react'
-import { Annotation } from '../types'
+import { Grip, Loader2, PackagePlus, Square, Crosshair } from 'lucide-react'
+import { Annotation, BoxAnnotation, BoxRect } from '../types'
+import ImageCropOverlay, { CropRect } from './ImageCropOverlay'
+import BoxLayer from './BoxLayer'
 
 interface CanvasProps {
   imageUrl: string | null
@@ -10,6 +12,18 @@ interface CanvasProps {
   isDragReady: boolean
   projectDragState: 'idle' | 'building' | 'ready'
   onBuildProjectBundleForDrag: () => void
+  cropMode: 'idle' | 'active'
+  onApplyCrop: (rect: CropRect) => void
+  onCancelCrop: () => void
+  // Box drawing
+  boxes: BoxAnnotation[]
+  drawMode: 'annotate' | 'box'
+  nextBoxColor: string
+  onDrawModeChange: (mode: 'annotate' | 'box') => void
+  onAddBox: (box: BoxAnnotation) => void
+  onUpdateBox: (id: string, rect: BoxRect) => void
+  onDeleteBox: (id: string) => void
+  onBoxColorChange: (id: string, color: string) => void
 }
 
 export default function Canvas({
@@ -20,12 +34,30 @@ export default function Canvas({
   isDragReady,
   projectDragState,
   onBuildProjectBundleForDrag,
+  cropMode,
+  onApplyCrop,
+  onCancelCrop,
+  boxes,
+  drawMode,
+  nextBoxColor,
+  onDrawModeChange,
+  onAddBox,
+  onUpdateBox,
+  onDeleteBox,
+  onBoxColorChange,
 }: CanvasProps): React.ReactElement {
   const localRef = useRef<HTMLImageElement>(null)
-  // Use the forwarded ref if provided, otherwise fall back to local ref
   const imgRef = imageRef ?? localRef
   const [imgSize, setImgSize] = useState<{ width: number; height: number } | null>(null)
   const [isHovered, setIsHovered] = useState(false)
+
+  // Selected box and draft box for drawing
+  const [selectedBoxId, setSelectedBoxId] = useState<string | null>(null)
+  const [draftBox, setDraftBox] = useState<BoxRect | null>(null)
+
+  // Refs for the active drawing gesture
+  const drawingRef = useRef<{ startX: number; startY: number; imgRect: DOMRect } | null>(null)
+  const draftRectRef = useRef<BoxRect | null>(null)
 
   // Track rendered image dimensions (changes on resize)
   const updateSize = useCallback(() => {
@@ -43,15 +75,99 @@ export default function Canvas({
     return () => observer.disconnect()
   }, [imageUrl, updateSize, imgRef])
 
+  // Deselect box when switching away from box mode
+  useEffect(() => {
+    if (drawMode !== 'box') setSelectedBoxId(null)
+  }, [drawMode])
+
   const handleClick = (e: React.MouseEvent<HTMLImageElement>): void => {
+    if (cropMode === 'active') return
+    // In box mode: clicks on empty space only deselect (drawing uses mousedown)
+    if (drawMode !== 'annotate') return
     const el = imgRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
     const x = (e.clientX - rect.left) / rect.width
     const y = (e.clientY - rect.top) / rect.height
-    // Clamp to [0, 1]
     onImageClick(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)))
   }
+
+  // ── Box drawing ───────────────────────────────────────────────────────────
+
+  const handleContainerMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>): void => {
+      if (drawMode !== 'box') return
+      if (cropMode === 'active') return
+      const img = imgRef.current
+      if (!img) return
+      const r = img.getBoundingClientRect()
+      const fracX = (e.clientX - r.left) / r.width
+      const fracY = (e.clientY - r.top) / r.height
+      drawingRef.current = { startX: fracX, startY: fracY, imgRect: r }
+      draftRectRef.current = { x: fracX, y: fracY, w: 0, h: 0 }
+      setDraftBox({ x: fracX, y: fracY, w: 0, h: 0 })
+      document.body.style.userSelect = 'none'
+    },
+    [drawMode, cropMode, imgRef],
+  )
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      const d = drawingRef.current
+      if (!d) return
+      const { startX, startY, imgRect: r } = d
+      const curX = (e.clientX - r.left) / r.width
+      const curY = (e.clientY - r.top) / r.height
+      const x = Math.max(0, Math.min(1, Math.min(startX, curX)))
+      const y = Math.max(0, Math.min(1, Math.min(startY, curY)))
+      const w = Math.min(Math.abs(curX - startX), 1 - x)
+      const h = Math.min(Math.abs(curY - startY), 1 - y)
+      const rect: BoxRect = { x, y, w, h }
+      draftRectRef.current = rect
+      setDraftBox(rect)
+    }
+
+    const onUp = (): void => {
+      if (!drawingRef.current) return
+      drawingRef.current = null
+      const finalRect = draftRectRef.current
+      draftRectRef.current = null
+      setDraftBox(null)
+      document.body.style.userSelect = ''
+
+      if (finalRect && finalRect.w > 0.01 && finalRect.h > 0.01) {
+        const newId = `box_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+        onAddBox({ id: newId, rect: finalRect, color: nextBoxColor })
+        setSelectedBoxId(newId)
+      } else {
+        // Click without meaningful drag → deselect
+        setSelectedBoxId(null)
+      }
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return (): void => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [onAddBox, nextBoxColor])
+
+  // Escape: cancel draw or deselect
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      if (drawingRef.current) {
+        drawingRef.current = null
+        draftRectRef.current = null
+        setDraftBox(null)
+        document.body.style.userSelect = ''
+      }
+      setSelectedBoxId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return (): void => window.removeEventListener('keydown', onKey)
+  }, [])
 
   if (!imageUrl) {
     return (
@@ -81,21 +197,45 @@ export default function Canvas({
 
   return (
     <div style={styles.canvasWrapper}>
-      {/* Image */}
+      {/* Image + overlays */}
       <div
-        style={styles.imageContainer}
+        style={{
+          ...styles.imageContainer,
+          cursor: drawMode === 'box' && cropMode === 'idle' ? 'crosshair' : undefined,
+        }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onMouseDown={handleContainerMouseDown}
       >
         <img
           ref={imgRef}
           src={imageUrl}
           alt="Screenshot"
-          style={styles.image}
+          style={{ ...styles.image, cursor: cropMode === 'active' ? 'default' : 'crosshair' }}
           onClick={handleClick}
           onLoad={updateSize}
           draggable={false}
         />
+
+        {/* Box layer — drawn over the image, under the crop overlay */}
+        {cropMode === 'idle' && (
+          <BoxLayer
+            boxes={boxes}
+            draftBox={draftBox}
+            draftColor={nextBoxColor}
+            selectedBoxId={selectedBoxId}
+            onSelect={setSelectedBoxId}
+            onUpdate={onUpdateBox}
+            onColorChange={onBoxColorChange}
+            onDelete={onDeleteBox}
+            imgRef={imgRef}
+          />
+        )}
+
+        {/* Crop overlay — positioned absolutely over the image */}
+        {cropMode === 'active' && (
+          <ImageCropOverlay onApply={onApplyCrop} onCancel={onCancelCrop} />
+        )}
 
         {/* Project bundle: build icon → loading → drag zip (left of PNG handle) */}
         {projectDragState === 'building' ? (
@@ -161,6 +301,34 @@ export default function Canvas({
             <Grip size={15} strokeWidth={2} />
           </div>
         )}
+      </div>
+
+      {/* Tool mode toggle — bottom-left of canvas area */}
+      <div style={styles.toolPalette}>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            background: drawMode === 'annotate' ? 'rgba(255,255,255,0.18)' : 'transparent',
+            color: drawMode === 'annotate' ? '#fff' : 'rgba(255,255,255,0.45)',
+          }}
+          onClick={() => onDrawModeChange('annotate')}
+          title="Annotate — click image to place notes"
+        >
+          <Crosshair size={14} strokeWidth={2} />
+        </button>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            background: drawMode === 'box' ? 'rgba(255,255,255,0.18)' : 'transparent',
+            color: drawMode === 'box' ? '#fff' : 'rgba(255,255,255,0.45)',
+          }}
+          onClick={() => onDrawModeChange('box')}
+          title="Box — drag to draw rectangles"
+        >
+          <Square size={14} strokeWidth={2} />
+        </button>
       </div>
     </div>
   )
@@ -261,5 +429,31 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'inherit',
     cursor: 'pointer',
     borderRadius: 6,
+  },
+  toolPalette: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    display: 'flex',
+    flexDirection: 'row',
+    background: 'rgba(0,0,0,0.55)',
+    backdropFilter: 'blur(4px)',
+    borderRadius: 8,
+    padding: 3,
+    gap: 2,
+    zIndex: 5,
+    userSelect: 'none',
+  },
+  toolBtn: {
+    width: 28,
+    height: 28,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    transition: 'background 0.12s, color 0.12s',
   },
 }
