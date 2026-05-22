@@ -159,8 +159,8 @@ Do not ask "what do you want to do with this zip?" as the first response. Instea
 
 1. Verify the file exists.
 2. Extract to a temp folder.
-3. **Read `rendered-export.png` first using the Read tool** — it shows exactly what each annotation points to (numbered dots, dashed arrows, sidebar cards). This is usually all you need.
-4. Read `project.json` and/or `README.md` only if the rendered image isn't clear enough (ambiguous target, cropped out of frame, etc.).
+3. **Read `rendered-export.png` first using the Read tool** — it shows numbered dots, dashed arrows, and sidebar cards with stable IDs, and is usually all you need.
+4. Read `project.json` and/or `README.md` only if the rendered image is missing, ambiguous, or you need to see the image in more detail without the overlapping lines and boxes.
 5. Return a structured interpretation in one response.
 
 ### Required output format for bundle intake
