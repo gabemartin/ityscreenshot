@@ -8,6 +8,8 @@ export interface Annotation {
   point: AnnotationPoint
   text: string
   color: string
+  /** When set, the marker renders as a resizable box (arrow stays attached). */
+  rect?: BoxRect
 }
 
 export interface BoxRect {
@@ -17,10 +19,3 @@ export interface BoxRect {
   h: number // 0-1 fraction (height)
 }
 
-export interface BoxAnnotation {
-  id: string
-  rect: BoxRect
-  color: string
-}
-
-// Window.electronAPI is typed in src/preload/index.d.ts

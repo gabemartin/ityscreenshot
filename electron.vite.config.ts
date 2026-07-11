@@ -9,6 +9,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [react()]
+    plugins: [react()],
+    server: {
+      // Ship Studio expects the renderer on 3000; scripts/dev.mjs sets this from --port
+      port: Number(process.env.SHIPSTUDIO_DEV_PORT) || 3000,
+      strictPort: true
+    }
   }
 })

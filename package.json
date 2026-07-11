@@ -6,11 +6,11 @@
   "author": "gabemartin",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder"
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
   },
   "dependencies": {
     "adm-zip": "^0.5.17",
@@ -31,6 +31,10 @@
   "build": {
     "appId": "com.gabemartin.ityscreenshot",
     "productName": "SpecShot",
+    "files": [
+      "out/**/*",
+      "resources/**/*"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "resources/icon.icns",

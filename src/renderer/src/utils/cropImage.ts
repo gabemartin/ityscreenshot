@@ -1,6 +1,8 @@
 import { Annotation } from '../types'
 import type { CropRect } from '../components/ImageCropOverlay'
 
+const MIN_DIM = 0.005
+
 export interface CropResult {
   dataUrl: string
   annotations: Annotation[]
@@ -51,13 +53,26 @@ export async function cropImage(
     const px = ann.point.x * naturalSize.width
     const py = ann.point.y * naturalSize.height
     if (px >= nx && px <= nRight && py >= ny && py <= nBottom) {
-      remapped.push({
+      const next: Annotation = {
         ...ann,
         point: {
           x: Math.max(0, Math.min(1, (px - nx) / nw)),
           y: Math.max(0, Math.min(1, (py - ny) / nh)),
         },
-      })
+      }
+      if (ann.rect) {
+        const rx = ann.rect.x * naturalSize.width
+        const ry = ann.rect.y * naturalSize.height
+        const rw = ann.rect.w * naturalSize.width
+        const rh = ann.rect.h * naturalSize.height
+        next.rect = {
+          x: Math.max(0, Math.min(1, (rx - nx) / nw)),
+          y: Math.max(0, Math.min(1, (ry - ny) / nh)),
+          w: Math.max(MIN_DIM, Math.min(1, rw / nw)),
+          h: Math.max(MIN_DIM, Math.min(1, rh / nh)),
+        }
+      }
+      remapped.push(next)
     }
   }
 

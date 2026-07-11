@@ -378,7 +378,9 @@ function createWindow(): void {
   })
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
+    // electron-vite sets ELECTRON_RENDERER_URL to the actual renderer server
+    // (port may be 3000 under Ship Studio — never hardcode Vite's default 5173)
+    mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL || 'http://localhost:3000')
     mainWindow.webContents.openDevTools()
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
