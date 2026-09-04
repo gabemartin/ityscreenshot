@@ -8,6 +8,8 @@ interface TopBarProps {
   onCopy: () => void
   onCrop: () => void
   hasImage: boolean
+  /** Crop only works with a single image loaded. */
+  canCrop?: boolean
   copyState?: 'idle' | 'copying' | 'copied'
   cropMode?: 'idle' | 'active'
   canvasTool: CanvasTool
@@ -20,6 +22,7 @@ export default function TopBar({
   onCopy,
   onCrop,
   hasImage,
+  canCrop = true,
   copyState = 'idle',
   cropMode = 'idle',
   canvasTool,
@@ -28,7 +31,7 @@ export default function TopBar({
   const isBusy = copyState === 'copying'
   const isCopied = copyState === 'copied'
   const copyActive = hasImage && !isBusy && cropMode === 'idle'
-  const cropActive = hasImage && cropMode === 'idle'
+  const cropActive = hasImage && canCrop && cropMode === 'idle'
   const toolsActive = hasImage && cropMode === 'idle'
 
   return (
@@ -119,7 +122,11 @@ export default function TopBar({
             cursor: cropActive ? 'pointer' : 'not-allowed',
           }}
           onClick={cropActive ? onCrop : undefined}
-          title="Crop the image (notes outside the crop are removed)"
+          title={
+            hasImage && !canCrop
+              ? 'Crop is available only with a single image loaded'
+              : 'Crop the image (notes outside the crop are removed)'
+          }
         >
           Crop
         </button>

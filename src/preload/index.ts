@@ -7,9 +7,16 @@ interface ProjectPoint {
 
 interface ProjectAnnotation {
   id: string
-  point: ProjectPoint
+  point?: ProjectPoint
   text: string
   color: string
+  imageId?: string
+}
+
+interface SessionState {
+  version: number
+  images: Array<{ id: string; dataUrl: string }>
+  rows: Array<{ id: string; cells: Array<{ imageId: string; widthFr: number }> }>
 }
 
 interface SaveProjectPayload {
@@ -18,13 +25,15 @@ interface SaveProjectPayload {
     createdAt: string
     updatedAt: string
     annotations: ProjectAnnotation[]
+    layout?: Array<{ id: string; cells: Array<{ imageId: string; widthFr: number }> }>
     llmMapping: {
       notes: Array<{
         index: number
         id: string
         text: string
-        point: ProjectPoint
+        point?: ProjectPoint
         color: string
+        imageId?: string
       }>
     }
     canvas: {
@@ -33,6 +42,7 @@ interface SaveProjectPayload {
     } | null
   }
   sourceImageDataUrl: string
+  sourceImages?: Array<{ id: string; dataUrl: string }>
   renderedImageDataUrl?: string | null
 }
 
@@ -42,6 +52,7 @@ interface OpenProjectResult {
     annotations: ProjectAnnotation[]
   }
   sourceImageDataUrl: string
+  sourceImages?: Array<{ id: string | null; dataUrl: string }>
 }
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -77,6 +88,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   loadSessionImage: (): Promise<string | null> =>
     ipcRenderer.invoke('session:load-image'),
+
+  // v2 session persistence: multiple images + layout rows
+  saveSessionState: (state: SessionState): Promise<void> =>
+    ipcRenderer.invoke('session:save-state', state),
+
+  loadSessionState: (): Promise<SessionState | null> =>
+    ipcRenderer.invoke('session:load-state'),
 
   saveProject: (payload: SaveProjectPayload): Promise<string | null> =>
     ipcRenderer.invoke('dialog:save-project', payload),

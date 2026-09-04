@@ -122,7 +122,7 @@ export default function Sidebar({
     <div style={styles.sidebar}>
       <div ref={scrollAreaRef} style={styles.scrollArea} onScroll={onScroll}>
         {annotations.length === 0 ? (
-          <p style={styles.empty}>Click the image to add annotations.</p>
+          <p style={styles.empty}>Click the image or + Add note to add annotations.</p>
         ) : (
           <>
             {annotations.map((ann, i) => (

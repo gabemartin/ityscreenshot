@@ -29,6 +29,23 @@ interface ProjectPlacedArrow {
   end: ProjectPoint
   thickness?: number
   color: string
+  imageId?: string
+}
+
+interface ProjectLayoutCell {
+  imageId: string
+  widthFr: number
+}
+
+interface ProjectLayoutRow {
+  id: string
+  cells: ProjectLayoutCell[]
+}
+
+interface SessionState {
+  version: number
+  images: Array<{ id: string; dataUrl: string }>
+  rows: ProjectLayoutRow[]
 }
 
 interface ProjectRect {
@@ -44,18 +61,24 @@ interface ProjectPlacedShape {
   rect: ProjectRect
   thickness?: number
   color: string
+  imageId?: string
 }
 
 interface ProjectAnnotation {
   id: string
-  point: ProjectPoint
+  point?: ProjectPoint
   text: string
   color: string
+  imageId?: string
 }
 
 interface ProjectAssetEntry {
   path: string
   mimeType: string
+}
+
+interface ProjectSourceImageAsset extends ProjectAssetEntry {
+  id: string | null
 }
 
 interface ProjectManifest {
@@ -65,17 +88,22 @@ interface ProjectManifest {
   annotations: ProjectAnnotation[]
   placedArrows?: ProjectPlacedArrow[]
   placedShapes?: ProjectPlacedShape[]
+  /** v2: row/column layout of the canvas images */
+  layout?: ProjectLayoutRow[]
   llmMapping: {
     notes: Array<{
       index: number
       id: string
       text: string
-      point: ProjectPoint
+      point?: ProjectPoint
       color: string
+      imageId?: string
     }>
   }
   assets: {
     sourceImage: ProjectAssetEntry
+    /** v2: one entry per canvas image, in layout order */
+    sourceImages?: ProjectSourceImageAsset[]
     renderedImage?: ProjectAssetEntry
   }
 }
@@ -83,12 +111,15 @@ interface ProjectManifest {
 interface SaveProjectPayload {
   project: Omit<ProjectManifest, 'assets'>
   sourceImageDataUrl: string
+  /** v2: all canvas images (first entry matches sourceImageDataUrl) */
+  sourceImages?: Array<{ id: string; dataUrl: string }>
   renderedImageDataUrl?: string | null
 }
 
 interface OpenProjectResult {
   project: ProjectManifest
   sourceImageDataUrl: string
+  sourceImages: Array<{ id: string | null; dataUrl: string }>
   renderedImageDataUrl: string | null
   filePath: string
 }
@@ -148,20 +179,31 @@ function parseProjectBundle(bundlePath: string): OpenProjectResult {
   if (!projectEntry) throw new Error('Missing project.json in bundle')
 
   const project = JSON.parse(projectEntry.getData().toString('utf8')) as ProjectManifest
-  if (project.version !== 1 || !Array.isArray(project.annotations)) {
+  if ((project.version !== 1 && project.version !== 2) || !Array.isArray(project.annotations)) {
     throw new Error('Unsupported or invalid project format')
   }
 
-  const sourcePath = project.assets?.sourceImage?.path
-  if (!sourcePath) throw new Error('Missing source image asset metadata')
+  const readImageEntry = (entryPath: string, mimeType?: string): string => {
+    const entry = zip.getEntry(entryPath)
+    if (!entry) throw new Error(`Image "${entryPath}" is missing from bundle`)
+    const resolvedMime =
+      mimeType || extensionToMimeType(path.extname(entryPath).slice(1))
+    return toDataUrl(entry.getData(), resolvedMime)
+  }
 
-  const sourceEntry = zip.getEntry(sourcePath)
-  if (!sourceEntry) throw new Error('Source image is missing from bundle')
+  // v2 bundles list every canvas image; v1 has a single sourceImage entry.
+  const sourceAssets: ProjectSourceImageAsset[] =
+    Array.isArray(project.assets?.sourceImages) && project.assets.sourceImages.length > 0
+      ? project.assets.sourceImages
+      : project.assets?.sourceImage?.path
+        ? [{ id: null, ...project.assets.sourceImage }]
+        : []
+  if (sourceAssets.length === 0) throw new Error('Missing source image asset metadata')
 
-  const sourceMimeType =
-    project.assets.sourceImage.mimeType ||
-    extensionToMimeType(path.extname(sourcePath).slice(1))
-  const sourceImageDataUrl = toDataUrl(sourceEntry.getData(), sourceMimeType)
+  const sourceImages = sourceAssets.map((asset) => ({
+    id: asset.id ?? null,
+    dataUrl: readImageEntry(asset.path, asset.mimeType),
+  }))
 
   let renderedImageDataUrl: string | null = null
   const renderedPath = project.assets?.renderedImage?.path
@@ -175,27 +217,62 @@ function parseProjectBundle(bundlePath: string): OpenProjectResult {
     }
   }
 
-  return { project, sourceImageDataUrl, renderedImageDataUrl, filePath: bundlePath }
+  return {
+    project,
+    sourceImageDataUrl: sourceImages[0].dataUrl,
+    sourceImages,
+    renderedImageDataUrl,
+    filePath: bundlePath,
+  }
 }
 
-function buildBundleReadme(manifest: Omit<ProjectManifest, 'assets'>, sourceName: string, renderedName?: string): string {
+function buildBundleReadme(manifest: Omit<ProjectManifest, 'assets'>, sourceNames: string[], renderedName?: string): string {
   const notes = manifest.llmMapping?.notes ?? []
   const createdAt = manifest.createdAt ?? new Date().toISOString()
+  const isMultiImage = sourceNames.length > 1
 
-  const tableHeader = '| # | ID | Point (x, y) | Color | Note |\n|---|---|---|---|---|'
-  const tableRows = notes.map((n) =>
-    `| ${n.index} | \`${n.id}\` | (${n.point.x.toFixed(3)}, ${n.point.y.toFixed(3)}) | ${n.color} | ${n.text ? n.text.replace(/\n/g, ' ') : '*(empty)*'} |`
-  ).join('\n')
+  const tableHeader = isMultiImage
+    ? '| # | ID | Image | Point (x, y) | Color | Note |\n|---|---|---|---|---|---|'
+    : '| # | ID | Point (x, y) | Color | Note |\n|---|---|---|---|---|'
+  const tableRows = notes.map((n) => {
+    const pointCell = n.point
+      ? `(${n.point.x.toFixed(3)}, ${n.point.y.toFixed(3)})`
+      : '— *(sidebar-only)*'
+    const cells = [
+      `${n.index}`,
+      `\`${n.id}\``,
+      ...(isMultiImage ? [n.imageId ? `\`${n.imageId}\`` : '*(first)*'] : []),
+      pointCell,
+      n.color,
+      n.text ? n.text.replace(/\n/g, ' ') : '*(empty)*',
+    ]
+    return `| ${cells.join(' | ')} |`
+  }).join('\n')
   const annotationTable = notes.length > 0
     ? `${tableHeader}\n${tableRows}`
     : '*No annotations in this bundle.*'
 
+  const sourceLines = sourceNames.map((name, i) =>
+    `- \`${name}\` — original un-annotated screenshot${isMultiImage ? ` (canvas image ${i + 1} of ${sourceNames.length})` : ''}`
+  )
   const filesSection = [
     `- \`project.json\` — machine-readable manifest (authoritative source of truth)`,
-    `- \`${sourceName}\` — original un-annotated screenshot`,
+    ...sourceLines,
     renderedName ? `- \`${renderedName}\` — composed view with numbered dots, dashed arrows, and sidebar cards` : null,
     `- \`README.md\` — this file`,
   ].filter(Boolean).join('\n')
+
+  const multiImageSection = isMultiImage
+    ? `
+
+---
+
+## Multiple canvas images
+
+This project contains **${sourceNames.length} images** laid out on one canvas. \`project.json → layout\` describes the arrangement as rows of cells; each cell references an image by \`imageId\` and has a \`widthFr\` column-width fraction (fractions sum to 1 per row). Rows stack top to bottom and each row spans the full canvas width.
+
+Every annotation, arrow, and shape carries an \`imageId\` telling you which image its coordinates are relative to. Match it against \`assets.sourceImages[].id\` to find the right file.`
+    : ''
 
   return `# SpecShot Bundle
 > Generated by [SpecShot](https://github.com/gabemartin/ityscreenshot) on ${createdAt}
@@ -228,7 +305,7 @@ Do **not** start with "What do you want me to do with this zip?" unless the user
 
 ## Files in this bundle
 
-${filesSection}
+${filesSection}${multiImageSection}
 
 ---
 
@@ -253,11 +330,12 @@ Order numbers start at 1 and match the visual labels on the rendered image. They
 
 ## Coordinate system
 
-\`point.x\` and \`point.y\` are fractional positions in the range \`[0, 1]\` relative to the source image dimensions.
+\`point.x\` and \`point.y\` are fractional positions in the range \`[0, 1]\` relative to the dimensions of the annotation's **own** source image (its \`imageId\`; single-image bundles have only one).
 
 - \`(0, 0)\` = top-left corner
 - \`(1, 1)\` = bottom-right corner
 - To get pixel coordinates: \`px = point.x × imageWidth\`, \`py = point.y × imageHeight\`
+- **Missing \`point\`** = sidebar-only note with no image marker or connector line
 
 ---
 
@@ -316,15 +394,24 @@ Optional: bundle path + goal + priority + constraints. Reply "skip" to proceed n
 
 \`\`\`jsonc
 {
-  "version": 1,                    // schema version
+  "version": 2,                    // schema version (1 = legacy single-image)
   "createdAt": "ISO 8601 date",
   "updatedAt": "ISO 8601 date",
   "annotations": [                 // same data as llmMapping, lower-level
     {
       "id": "ann_...",
-      "point": { "x": 0.0, "y": 0.0 },
+      "point": { "x": 0.0, "y": 0.0 },  // omit for sidebar-only notes
       "text": "note text",
-      "color": "#RRGGBB"
+      "color": "#RRGGBB",
+      "imageId": "img_..."         // which canvas image the point is relative to
+    }
+  ],
+  "layout": [                      // v2: canvas arrangement — rows of image cells
+    {
+      "id": "row_...",
+      "cells": [
+        { "imageId": "img_...", "widthFr": 0.5 }  // widthFr sums to 1 per row
+      ]
     }
   ],
   "llmMapping": {
@@ -333,13 +420,17 @@ Optional: bundle path + goal + priority + constraints. Reply "skip" to proceed n
         "index": 1,                // 1-based order number (positional, may change)
         "id": "ann_...",           // stable unique ID (never changes)
         "text": "note text",
-        "point": { "x": 0.0, "y": 0.0 },
-        "color": "#RRGGBB"
+        "point": { "x": 0.0, "y": 0.0 },  // omit for sidebar-only notes
+        "color": "#RRGGBB",
+        "imageId": "img_..."
       }
     ]
   },
   "assets": {
-    "sourceImage": { "path": "source-image.png", "mimeType": "image/png" },
+    "sourceImage": { "path": "source-image.png", "mimeType": "image/png" },  // first image (compat)
+    "sourceImages": [              // v2: every canvas image, in layout order
+      { "id": "img_...", "path": "source-image-1.png", "mimeType": "image/png" }
+    ],
     "renderedImage": { "path": "rendered-export.png", "mimeType": "image/png" }
   }
 }
@@ -348,9 +439,18 @@ Optional: bundle path + goal + priority + constraints. Reply "skip" to proceed n
 }
 
 function writeProjectBundle(filePath: string, payload: SaveProjectPayload): void {
-  const sourceImage = parseDataUrl(payload.sourceImageDataUrl)
-  const sourceExt = mimeTypeToExtension(sourceImage.mimeType)
-  const sourceName = `source-image.${sourceExt}`
+  // v2 payloads carry every canvas image; older payloads only the single one.
+  const sources =
+    payload.sourceImages && payload.sourceImages.length > 0
+      ? payload.sourceImages
+      : [{ id: null as string | null, dataUrl: payload.sourceImageDataUrl }]
+
+  const sourceFiles = sources.map((src, i) => {
+    const parsed = parseDataUrl(src.dataUrl)
+    const ext = mimeTypeToExtension(parsed.mimeType)
+    const name = sources.length > 1 ? `source-image-${i + 1}.${ext}` : `source-image.${ext}`
+    return { id: src.id ?? null, name, mimeType: parsed.mimeType, buffer: parsed.buffer }
+  })
 
   let renderedImageAsset: ProjectAssetEntry | undefined
   let renderedBuffer: Buffer | null = null
@@ -367,17 +467,25 @@ function writeProjectBundle(filePath: string, payload: SaveProjectPayload): void
   const projectForDisk: ProjectManifest = {
     ...payload.project,
     assets: {
-      sourceImage: { path: sourceName, mimeType: sourceImage.mimeType },
+      // sourceImage always points at the first image for v1-reader compatibility
+      sourceImage: { path: sourceFiles[0].name, mimeType: sourceFiles[0].mimeType },
+      sourceImages: sourceFiles.map((f) => ({ id: f.id, path: f.name, mimeType: f.mimeType })),
       ...(renderedImageAsset ? { renderedImage: renderedImageAsset } : {}),
     },
   }
 
-  const readme = buildBundleReadme(payload.project, sourceName, renderedImageAsset?.path)
+  const readme = buildBundleReadme(
+    payload.project,
+    sourceFiles.map((f) => f.name),
+    renderedImageAsset?.path,
+  )
 
   const zip = new AdmZip()
   zip.addFile('README.md', Buffer.from(readme, 'utf8'))
   zip.addFile('project.json', Buffer.from(JSON.stringify(projectForDisk, null, 2), 'utf8'))
-  zip.addFile(sourceName, sourceImage.buffer)
+  for (const f of sourceFiles) {
+    zip.addFile(f.name, f.buffer)
+  }
   if (renderedImageAsset && renderedBuffer) {
     zip.addFile(renderedImageAsset.path, renderedBuffer)
   }
@@ -619,6 +727,25 @@ function registerIpcHandlers(): void {
   ipcMain.handle('session:load-image', () => {
     if (!fs.existsSync(sessionImagePath)) return null
     return fs.readFileSync(sessionImagePath, 'utf8')
+  })
+
+  // v2 session persistence: all canvas images + layout rows as JSON.
+  const sessionStatePath = path.join(app.getPath('userData'), 'session-state.json')
+
+  ipcMain.handle('session:save-state', (_event, state: SessionState) => {
+    fs.writeFileSync(sessionStatePath, JSON.stringify(state), 'utf8')
+  })
+
+  ipcMain.handle('session:load-state', () => {
+    if (!fs.existsSync(sessionStatePath)) return null
+    try {
+      const parsed = JSON.parse(fs.readFileSync(sessionStatePath, 'utf8')) as SessionState
+      if (!parsed || !Array.isArray(parsed.images)) return null
+      return parsed
+    } catch (err) {
+      console.error('Failed to read session state:', err)
+      return null
+    }
   })
 
   // Initiate a native OS drag from the pre-captured temp file.

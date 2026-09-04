@@ -9,6 +9,8 @@ export interface ElectronAPI {
   dragOutProject(): void
   saveSessionImage(dataUrl: string): Promise<void>
   loadSessionImage(): Promise<string | null>
+  saveSessionState(state: SessionState): Promise<void>
+  loadSessionState(): Promise<SessionState | null>
   saveProject(payload: SaveProjectPayload): Promise<string | null>
   openProject(): Promise<OpenProjectResult | null>
   openProjectFromPath(filePath: string): Promise<OpenProjectResult | null>
@@ -23,12 +25,29 @@ export interface ProjectPoint {
   y: number
 }
 
+export interface ProjectLayoutCell {
+  imageId: string
+  widthFr: number
+}
+
+export interface ProjectLayoutRow {
+  id: string
+  cells: ProjectLayoutCell[]
+}
+
+export interface SessionState {
+  version: number
+  images: Array<{ id: string; dataUrl: string }>
+  rows: ProjectLayoutRow[]
+}
+
 export interface ProjectPlacedArrow {
   id: string
   start: ProjectPoint
   end: ProjectPoint
   thickness?: number
   color: string
+  imageId?: string
 }
 
 export interface ProjectRect {
@@ -44,13 +63,16 @@ export interface ProjectPlacedShape {
   rect: ProjectRect
   thickness?: number
   color: string
+  imageId?: string
 }
 
 export interface ProjectAnnotation {
   id: string
-  point: ProjectPoint
+  point?: ProjectPoint
   text: string
   color: string
+  rect?: ProjectRect
+  imageId?: string
 }
 
 export interface ProjectManifest {
@@ -60,13 +82,17 @@ export interface ProjectManifest {
   annotations: ProjectAnnotation[]
   placedArrows?: ProjectPlacedArrow[]
   placedShapes?: ProjectPlacedShape[]
+  /** v2: row/column layout of the canvas images */
+  layout?: ProjectLayoutRow[]
   llmMapping: {
     notes: Array<{
       index: number
       id: string
       text: string
-      point: ProjectPoint
+      point?: ProjectPoint
       color: string
+      imageId?: string
+      rect?: ProjectRect
     }>
   }
   canvas: {
@@ -78,6 +104,12 @@ export interface ProjectManifest {
       path: string
       mimeType: string
     }
+    /** v2: one entry per canvas image, in layout order */
+    sourceImages?: Array<{
+      id: string | null
+      path: string
+      mimeType: string
+    }>
     renderedImage?: {
       path: string
       mimeType: string
@@ -88,12 +120,15 @@ export interface ProjectManifest {
 export interface SaveProjectPayload {
   project: Omit<ProjectManifest, 'assets'>
   sourceImageDataUrl: string
+  /** v2: all canvas images (first entry matches sourceImageDataUrl) */
+  sourceImages?: Array<{ id: string; dataUrl: string }>
   renderedImageDataUrl?: string | null
 }
 
 export interface OpenProjectResult {
   project: ProjectManifest
   sourceImageDataUrl: string
+  sourceImages?: Array<{ id: string | null; dataUrl: string }>
   renderedImageDataUrl: string | null
   filePath: string
 }

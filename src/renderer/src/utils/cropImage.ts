@@ -54,6 +54,10 @@ export async function cropImage(
   // Remap annotations: keep only those inside the crop rectangle
   const remapped: Annotation[] = []
   for (const ann of annotations) {
+    if (!ann.point) {
+      remapped.push(ann)
+      continue
+    }
     const px = ann.point.x * naturalSize.width
     const py = ann.point.y * naturalSize.height
     if (px >= nx && px <= nRight && py >= ny && py <= nBottom) {

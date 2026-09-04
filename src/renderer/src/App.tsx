@@ -1,7 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Square } from 'lucide-react'
 import type { SaveProjectPayload } from '../../preload/index.d.ts'
-import { Annotation, BoxRect, CanvasTool, PlacedArrow, PlacedShape, ShapeKind } from './types'
+import {
+  Annotation,
+  AnnotationPoint,
+  BoxRect,
+  CanvasImage,
+  CanvasTool,
+  DropZone,
+  LayoutCell,
+  LayoutRow,
+  PlacedArrow,
+  PlacedShape,
+  ShapeKind,
+} from './types'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import Canvas from './components/Canvas'
@@ -25,7 +37,11 @@ const DEFAULT_BOX_W = 0.12
 const DEFAULT_BOX_H = 0.08
 const DRAG_THRESHOLD_PX = 5
 
-function getArrowTarget(ann: Annotation): { x: number; y: number } {
+function isAnchored(ann: Annotation): ann is Annotation & { point: AnnotationPoint } {
+  return ann.point != null
+}
+
+function getArrowTarget(ann: Annotation & { point: AnnotationPoint }): { x: number; y: number } {
   if (ann.rect) {
     return { x: ann.rect.x, y: ann.rect.y + ann.rect.h / 2 }
   }
@@ -43,8 +59,12 @@ function pointToRect(point: { x: number; y: number }): BoxRect {
   }
 }
 
+function generateUid(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+}
+
 function generateId(): string {
-  return `ann_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+  return generateUid('ann')
 }
 
 interface ProjectOpenResult {
@@ -53,13 +73,65 @@ interface ProjectOpenResult {
     annotations: Annotation[]
     placedArrows?: PlacedArrow[]
     placedShapes?: PlacedShape[]
+    layout?: unknown
   }
   sourceImageDataUrl: string
+  sourceImages?: Array<{ id?: string | null; dataUrl: string }>
 }
 
 function isBundleFileName(name: string): boolean {
   const lower = name.toLowerCase()
   return lower.endsWith('.zip') || lower.endsWith('.speck')
+}
+
+function isValidCanvasImage(input: unknown): input is CanvasImage {
+  if (typeof input !== 'object' || !input) return false
+  const img = input as CanvasImage
+  return typeof img.id === 'string' && typeof img.dataUrl === 'string' && img.dataUrl.startsWith('data:')
+}
+
+/**
+ * Builds a valid layout from untrusted row data: drops cells referencing
+ * unknown/duplicate images, normalizes widthFr sums to 1 per row, and appends
+ * any unreferenced image as its own full-width row.
+ */
+function sanitizeLayout(images: CanvasImage[], rawRows: unknown): LayoutRow[] {
+  const ids = new Set(images.map((i) => i.id))
+  const seen = new Set<string>()
+  const rows: LayoutRow[] = []
+
+  if (Array.isArray(rawRows)) {
+    for (const raw of rawRows) {
+      if (typeof raw !== 'object' || !raw) continue
+      const rawRow = raw as LayoutRow
+      if (!Array.isArray(rawRow.cells)) continue
+      const cells: LayoutCell[] = []
+      for (const c of rawRow.cells) {
+        if (typeof c !== 'object' || !c) continue
+        const { imageId, widthFr } = c as LayoutCell
+        if (typeof imageId !== 'string' || !ids.has(imageId) || seen.has(imageId)) continue
+        seen.add(imageId)
+        cells.push({ imageId, widthFr: typeof widthFr === 'number' && widthFr > 0 ? widthFr : 1 })
+      }
+      if (cells.length === 0) continue
+      const total = cells.reduce((sum, c) => sum + c.widthFr, 0)
+      rows.push({
+        id: typeof rawRow.id === 'string' && rawRow.id ? rawRow.id : generateUid('row'),
+        cells: cells.map((c) => ({ ...c, widthFr: c.widthFr / total })),
+      })
+    }
+  }
+
+  for (const img of images) {
+    if (!seen.has(img.id)) {
+      rows.push({ id: generateUid('row'), cells: [{ imageId: img.id, widthFr: 1 }] })
+    }
+  }
+  return rows
+}
+
+function singleImageLayout(image: CanvasImage): LayoutRow[] {
+  return [{ id: generateUid('row'), cells: [{ imageId: image.id, widthFr: 1 }] }]
 }
 
 function isValidPlacedArrow(input: unknown): input is PlacedArrow {
@@ -92,6 +164,9 @@ function isValidPlacedShape(input: unknown): input is PlacedShape {
 function isValidAnnotation(input: unknown): input is Annotation {
   if (typeof input !== 'object' || !input) return false
   const ann = input as Annotation
+  const hasValidPoint =
+    ann.point === undefined ||
+    (typeof ann.point.x === 'number' && typeof ann.point.y === 'number')
   const hasValidRect =
     ann.rect === undefined ||
     (typeof ann.rect.x === 'number' &&
@@ -102,8 +177,7 @@ function isValidAnnotation(input: unknown): input is Annotation {
     typeof ann.id === 'string' &&
     typeof ann.text === 'string' &&
     typeof ann.color === 'string' &&
-    typeof ann.point?.x === 'number' &&
-    typeof ann.point?.y === 'number' &&
+    hasValidPoint &&
     hasValidRect
   )
 }
@@ -111,7 +185,8 @@ function isValidAnnotation(input: unknown): input is Annotation {
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 export default function App(): React.ReactElement {
-  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [images, setImages] = useState<CanvasImage[]>([])
+  const [rows, setRows] = useState<LayoutRow[]>([])
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [newestId, setNewestId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
@@ -127,11 +202,30 @@ export default function App(): React.ReactElement {
   const arrowColorIndexRef = useRef(0)
   const shapeColorIndexRef = useRef(0)
 
+  const hasImage = images.length > 0
+  const canCrop = images.length === 1
+
   // Refs for viewport-level SVG arrow overlay
   const cardElsRef = useRef<Map<string, HTMLDivElement>>(new Map())
-  const imageRef = useRef<HTMLImageElement>(null)
+  // One <img> element per canvas image, registered by Canvas cells
+  const imageElsRef = useRef<Map<string, HTMLImageElement>>(new Map())
   // tick forces a re-render whenever card or image layout changes
   const [tick, setTick] = useState(0)
+
+  /** Resolve the <img> element an annotation/marker is anchored to. */
+  const getImageEl = useCallback((imageId?: string | null): HTMLImageElement | null => {
+    const map = imageElsRef.current
+    if (imageId) {
+      const el = map.get(imageId)
+      // Skip detached nodes: a cell remount can briefly leave a stale entry,
+      // and positioning against a detached element freezes the overlay.
+      if (el && el.isConnected) return el
+    }
+    for (const el of map.values()) {
+      if (el.isConnected) return el
+    }
+    return null
+  }, [])
 
   // ── Marker dragging (dot or box) ─────────────────────────────────────────
   const draggingIdRef = useRef<string | null>(null)
@@ -144,11 +238,35 @@ export default function App(): React.ReactElement {
 
   const handleSidebarScroll = useCallback(() => setTick((t) => t + 1), [])
 
+  // The canvas wrapper scrolls in multi-image mode; the fixed-position SVG
+  // overlay (note arrows, dots, marker toolbar) must re-anchor on every scroll.
+  const handleCanvasScroll = useCallback(() => setTick((t) => t + 1), [])
+
   const handleCardRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) {
       cardElsRef.current.set(id, el)
     } else {
       cardElsRef.current.delete(id)
+    }
+    setTick((t) => t + 1)
+  }, [])
+
+  // One persistent ResizeObserver, managed per element as refs attach/detach.
+  // (A snapshot-based observer went stale whenever a cell remounted without
+  // `images` changing — e.g. on row layout changes — freezing overlay tracking.)
+  const imageRoRef = useRef<ResizeObserver | null>(null)
+
+  const handleImageElRef = useCallback((imageId: string, el: HTMLImageElement | null) => {
+    if (!imageRoRef.current) {
+      imageRoRef.current = new ResizeObserver(() => setTick((t) => t + 1))
+    }
+    const prev = imageElsRef.current.get(imageId)
+    if (prev && prev !== el) imageRoRef.current.unobserve(prev)
+    if (el) {
+      imageElsRef.current.set(imageId, el)
+      imageRoRef.current.observe(el)
+    } else {
+      imageElsRef.current.delete(imageId)
     }
     setTick((t) => t + 1)
   }, [])
@@ -179,13 +297,15 @@ export default function App(): React.ReactElement {
       }
 
       const id = draggingIdRef.current
-      if (!id || !imageRef.current) return
-      const rect = imageRef.current.getBoundingClientRect()
-      const x = clamp01((e.clientX - rect.left) / rect.width)
-      const y = clamp01((e.clientY - rect.top) / rect.height)
+      if (!id) return
       setAnnotations((prev) =>
         prev.map((a) => {
           if (a.id !== id) return a
+          const el = getImageEl(a.imageId)
+          if (!el) return a
+          const rect = el.getBoundingClientRect()
+          const x = clamp01((e.clientX - rect.left) / rect.width)
+          const y = clamp01((e.clientY - rect.top) / rect.height)
           if (a.rect) {
             const cx = x - a.rect.w / 2
             const cy = y - a.rect.h / 2
@@ -219,11 +339,9 @@ export default function App(): React.ReactElement {
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [])
+  }, [getImageEl])
 
-  // Re-render arrows when the window resizes or the image element resizes.
-  // The window listener covers the common case where imageRef.current is null
-  // at effect-setup time (first paste), so the ResizeObserver alone would miss it.
+  // Re-render arrows when the window resizes or any image element resizes.
   useEffect(() => {
     const bump = (): void => setTick((t) => t + 1)
     window.addEventListener('resize', bump)
@@ -231,18 +349,15 @@ export default function App(): React.ReactElement {
   }, [])
 
   useEffect(() => {
-    const el = imageRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => setTick((t) => t + 1))
-    ro.observe(el)
-    return () => ro.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageRef.current])
+    return () => imageRoRef.current?.disconnect()
+  }, [])
 
   // ── Load image (shared by clipboard + drag-and-drop) ────────────────────
 
   const loadImage = useCallback((dataUrl: string): void => {
-    setImageUrl(dataUrl)
+    const image: CanvasImage = { id: generateUid('img'), dataUrl }
+    setImages([image])
+    setRows(singleImageLayout(image))
     setAnnotations([])
     setPlacedArrows([])
     setPlacedShapes([])
@@ -251,8 +366,39 @@ export default function App(): React.ReactElement {
     setSelectedArrowId(null)
     setSelectedShapeId(null)
     setCanvasTool('note')
-    // Persist so the image survives a refresh or restart
-    window.electronAPI.saveSessionImage(dataUrl).catch(console.error)
+  }, [])
+
+  const addImageToRow = useCallback((rowId: string, dataUrl: string): void => {
+    const image: CanvasImage = { id: generateUid('img'), dataUrl }
+    setImages((prev) => [...prev, image])
+    setRows((prev) => {
+      if (prev.length === 0) return singleImageLayout(image)
+      // Unknown row id (e.g. layout changed mid-drag) → append as a new row
+      if (!prev.some((row) => row.id === rowId)) {
+        return [...prev, { id: generateUid('row'), cells: [{ imageId: image.id, widthFr: 1 }] }]
+      }
+      return prev.map((row) => {
+        if (row.id !== rowId) return row
+        const n = row.cells.length
+        const scale = n / (n + 1)
+        return {
+          ...row,
+          cells: [
+            ...row.cells.map((c) => ({ ...c, widthFr: c.widthFr * scale })),
+            { imageId: image.id, widthFr: 1 / (n + 1) },
+          ],
+        }
+      })
+    })
+  }, [])
+
+  const addImageBelow = useCallback((dataUrl: string): void => {
+    const image: CanvasImage = { id: generateUid('img'), dataUrl }
+    setImages((prev) => [...prev, image])
+    setRows((prev) => [
+      ...prev,
+      { id: generateUid('row'), cells: [{ imageId: image.id, widthFr: 1 }] },
+    ])
   }, [])
 
   const loadFromClipboard = useCallback(async (): Promise<void> => {
@@ -264,17 +410,46 @@ export default function App(): React.ReactElement {
     }
   }, [loadImage])
 
+  // Persist session (images + layout) whenever they change, debounced.
+  // Falls back to the legacy single-image file when the preload bridge is stale.
+  useEffect(() => {
+    if (images.length === 0) return
+    const t = setTimeout(() => {
+      const api = window.electronAPI
+      if (typeof api.saveSessionState === 'function') {
+        api.saveSessionState({ version: 2, images, rows }).catch(console.error)
+      } else {
+        api.saveSessionImage(images[0].dataUrl).catch(console.error)
+      }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [images, rows])
+
   // On mount: restore from last session first; fall back to whatever is on the clipboard
   useEffect(() => {
     ;(async (): Promise<void> => {
       try {
-        const session = await window.electronAPI.loadSessionImage()
-        if (session) {
-          setImageUrl(session)
+        const api = window.electronAPI
+        if (typeof api.loadSessionState === 'function') {
+          const state = await api.loadSessionState()
+          if (state && Array.isArray(state.images)) {
+            const imgs = state.images.filter(isValidCanvasImage)
+            if (imgs.length > 0) {
+              setImages(imgs)
+              setRows(sanitizeLayout(imgs, state.rows))
+              return
+            }
+          }
+        }
+        const legacy = await api.loadSessionImage()
+        if (legacy) {
+          const image: CanvasImage = { id: generateUid('img'), dataUrl: legacy }
+          setImages([image])
+          setRows(singleImageLayout(image))
           return
         }
       } catch (err) {
-        console.error('Failed to load session image:', err)
+        console.error('Failed to load session state:', err)
       }
       loadFromClipboard()
     })()
@@ -284,6 +459,7 @@ export default function App(): React.ReactElement {
   // ── Drag-and-drop image into window ─────────────────────────────────────
 
   const [isDroppingFile, setIsDroppingFile] = useState(false)
+  const [activeDropZone, setActiveDropZone] = useState<DropZone | null>(null)
   // Counter tracks nested dragenter/dragleave so the overlay stays visible
   // while the cursor moves across child elements inside the root div.
   const dragDepthRef = useRef(0)
@@ -304,18 +480,44 @@ export default function App(): React.ReactElement {
   const handleDragLeave = useCallback((e: React.DragEvent): void => {
     e.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
-    if (dragDepthRef.current === 0) setIsDroppingFile(false)
+    if (dragDepthRef.current === 0) {
+      setIsDroppingFile(false)
+      setActiveDropZone(null)
+    }
   }, [])
 
   const hydrateFromProject = useCallback((result: ProjectOpenResult): void => {
-    if (!result?.sourceImageDataUrl || !Array.isArray(result.project?.annotations)) {
+    if (!Array.isArray(result?.project?.annotations)) {
       throw new Error('Invalid project bundle payload')
     }
+    const rawImages =
+      Array.isArray(result.sourceImages) && result.sourceImages.length > 0
+        ? result.sourceImages
+        : result.sourceImageDataUrl
+          ? [{ id: null, dataUrl: result.sourceImageDataUrl }]
+          : []
+    const imgs: CanvasImage[] = rawImages
+      .filter((si) => typeof si?.dataUrl === 'string' && si.dataUrl.startsWith('data:'))
+      .map((si) => ({
+        id: typeof si.id === 'string' && si.id ? si.id : generateUid('img'),
+        dataUrl: si.dataUrl,
+      }))
+    if (imgs.length === 0) {
+      throw new Error('Invalid project bundle payload')
+    }
+    const layoutRows = sanitizeLayout(imgs, result.project.layout)
+    const idSet = new Set(imgs.map((i) => i.id))
+    const normalizeImageId = (imageId?: string): string =>
+      imageId && idSet.has(imageId) ? imageId : imgs[0].id
+
     const safeAnnotations = result.project.annotations
       .filter(isValidAnnotation)
       .map((ann) => ({
         ...ann,
-        point: { x: clamp01(ann.point.x), y: clamp01(ann.point.y) },
+        ...(ann.point
+          ? { point: { x: clamp01(ann.point.x), y: clamp01(ann.point.y) } }
+          : {}),
+        ...(ann.imageId ? { imageId: normalizeImageId(ann.imageId) } : {}),
       }))
 
     const safeArrows = Array.isArray(result.project.placedArrows)
@@ -323,6 +525,7 @@ export default function App(): React.ReactElement {
           ...arrow,
           start: { x: clamp01(arrow.start.x), y: clamp01(arrow.start.y) },
           end: { x: clamp01(arrow.end.x), y: clamp01(arrow.end.y) },
+          imageId: normalizeImageId(arrow.imageId),
         }))
       : []
 
@@ -335,10 +538,12 @@ export default function App(): React.ReactElement {
             w: Math.max(0, Math.min(1, shape.rect.w)),
             h: Math.max(0, Math.min(1, shape.rect.h)),
           },
+          imageId: normalizeImageId(shape.imageId),
         }))
       : []
 
-    setImageUrl(result.sourceImageDataUrl)
+    setImages(imgs)
+    setRows(layoutRows)
     setAnnotations(safeAnnotations)
     setPlacedArrows(safeArrows)
     setPlacedShapes(safeShapes)
@@ -349,7 +554,6 @@ export default function App(): React.ReactElement {
     arrowColorIndexRef.current = safeArrows.length % ANNOTATION_COLORS.length
     shapeColorIndexRef.current = safeShapes.length % ANNOTATION_COLORS.length
     setTick((t) => t + 1)
-    window.electronAPI.saveSessionImage(result.sourceImageDataUrl).catch(console.error)
   }, [])
 
   const handleOpenProject = useCallback(async (): Promise<void> => {
@@ -378,6 +582,8 @@ export default function App(): React.ReactElement {
     e.preventDefault()
     dragDepthRef.current = 0
     setIsDroppingFile(false)
+    const zone = activeDropZone
+    setActiveDropZone(null)
     const files = Array.from(e.dataTransfer.files)
     const bundleFile = files.find((f) => isBundleFileName(f.name))
     if (bundleFile) {
@@ -394,10 +600,17 @@ export default function App(): React.ReactElement {
     const reader = new FileReader()
     reader.onload = (ev): void => {
       const result = ev.target?.result
-      if (typeof result === 'string') loadImage(result)
+      if (typeof result !== 'string') return
+      if (zone && zone.startsWith('row:') && hasImage) {
+        addImageToRow(zone.slice(4), result)
+      } else if (zone === 'bottom' && hasImage) {
+        addImageBelow(result)
+      } else {
+        loadImage(result)
+      }
     }
     reader.readAsDataURL(file)
-  }, [loadImage, openProjectFromPath])
+  }, [activeDropZone, hasImage, addImageToRow, addImageBelow, loadImage, openProjectFromPath])
 
   // Cmd+V keyboard shortcut + canvas tool shortcuts
   useEffect(() => {
@@ -415,7 +628,7 @@ export default function App(): React.ReactElement {
         return
       }
 
-      if (inTextField || cropMode === 'active' || !imageUrl) return
+      if (inTextField || cropMode === 'active' || !hasImage) return
 
       if (e.key === 'n' || e.key === 'N') {
         e.preventDefault()
@@ -441,11 +654,11 @@ export default function App(): React.ReactElement {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [cropMode, imageUrl, loadFromClipboard])
+  }, [cropMode, hasImage, loadFromClipboard])
 
   // ── Annotation actions ───────────────────────────────────────────────────
 
-  const handleImageClick = useCallback((x: number, y: number): void => {
+  const handleImageClick = useCallback((imageId: string, x: number, y: number): void => {
     if (canvasTool !== 'note') return
     setSelectedArrowId(null)
     setSelectedShapeId(null)
@@ -456,12 +669,13 @@ export default function App(): React.ReactElement {
       point: { x, y },
       text: '',
       color,
+      imageId,
     }
     setAnnotations((prev) => [...prev, newAnnotation])
     setNewestId(newAnnotation.id)
   }, [canvasTool])
 
-  const handleCreateArrow = useCallback((start: { x: number; y: number }, end: { x: number; y: number }): void => {
+  const handleCreateArrow = useCallback((imageId: string, start: { x: number; y: number }, end: { x: number; y: number }): void => {
     const color = ANNOTATION_COLORS[arrowColorIndexRef.current % ANNOTATION_COLORS.length]
     arrowColorIndexRef.current++
     const arrow: PlacedArrow = {
@@ -470,6 +684,7 @@ export default function App(): React.ReactElement {
       end,
       color,
       thickness: DEFAULT_ARROW_THICKNESS,
+      imageId,
     }
     setPlacedArrows((prev) => [...prev, arrow])
     setSelectedArrowId(arrow.id)
@@ -494,7 +709,7 @@ export default function App(): React.ReactElement {
     setSelectedArrowId((prev) => (prev === id ? null : prev))
   }, [])
 
-  const handleCreateShape = useCallback((kind: ShapeKind, rect: BoxRect): void => {
+  const handleCreateShape = useCallback((imageId: string, kind: ShapeKind, rect: BoxRect): void => {
     const color = ANNOTATION_COLORS[shapeColorIndexRef.current % ANNOTATION_COLORS.length]
     shapeColorIndexRef.current++
     const shape: PlacedShape = {
@@ -503,6 +718,7 @@ export default function App(): React.ReactElement {
       rect,
       color,
       thickness: DEFAULT_SHAPE_THICKNESS,
+      imageId,
     }
     setPlacedShapes((prev) => [...prev, shape])
     setSelectedShapeId(shape.id)
@@ -533,9 +749,16 @@ export default function App(): React.ReactElement {
   }, [])
 
   const handleAddNote = useCallback((): void => {
-    // Add a note at a default position in the center when triggered from sidebar
-    handleImageClick(0.5, 0.5)
-  }, [handleImageClick])
+    const color = ANNOTATION_COLORS[colorIndexRef.current % ANNOTATION_COLORS.length]
+    colorIndexRef.current++
+    const newAnnotation: Annotation = {
+      id: generateId(),
+      text: '',
+      color,
+    }
+    setAnnotations((prev) => [...prev, newAnnotation])
+    setNewestId(newAnnotation.id)
+  }, [])
 
   const handleChangeText = useCallback((id: string, text: string): void => {
     setAnnotations((prev) => prev.map((a) => (a.id === id ? { ...a, text } : a)))
@@ -565,7 +788,7 @@ export default function App(): React.ReactElement {
   const handleConvertToBox = useCallback((id: string): void => {
     setAnnotations((prev) =>
       prev.map((a) => {
-        if (a.id !== id || a.rect) return a
+        if (a.id !== id || a.rect || !a.point) return a
         const rect = pointToRect(a.point)
         const center = rectCenter(rect)
         return { ...a, rect, point: center }
@@ -592,6 +815,27 @@ export default function App(): React.ReactElement {
       prev.map((a) => (a.id === id ? { ...a, rect, point: center } : a)),
     )
   }, [])
+
+  const handleResizeColumns = useCallback(
+    (rowId: string, leftIndex: number, leftFr: number, rightFr: number): void => {
+      setRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== rowId) return row
+          return {
+            ...row,
+            cells: row.cells.map((c, i) =>
+              i === leftIndex
+                ? { ...c, widthFr: leftFr }
+                : i === leftIndex + 1
+                  ? { ...c, widthFr: rightFr }
+                  : c,
+            ),
+          }
+        }),
+      )
+    },
+    [],
+  )
 
   const handleDragMove = useCallback((): void => setTick((t) => t + 1), [])
 
@@ -622,15 +866,12 @@ export default function App(): React.ReactElement {
 
   // ── Drag-out pre-capture ─────────────────────────────────────────────────
   // Keeps a temp PNG on disk that mirrors the current annotated view.
-  // Updated (debounced) whenever the image or annotations change so the file
-  // is ready before the user initiates a drag. The canvas receives a boolean
-  // so it can show/hide the drag handle accordingly.
 
   const [isDragReady, setIsDragReady] = useState(false)
   const dragDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!imageUrl) {
+    if (images.length === 0) {
       setIsDragReady(false)
       return
     }
@@ -650,47 +891,52 @@ export default function App(): React.ReactElement {
     return () => {
       if (dragDebounceRef.current) clearTimeout(dragDebounceRef.current)
     }
-  }, [imageUrl, annotations, placedArrows, placedShapes, capture])
+  }, [images, rows, annotations, placedArrows, placedShapes, capture])
 
   const handleSave = useCallback(async (): Promise<void> => {
-    if (!imageUrl) return
+    if (!hasImage) return
     const dataUrl = await capture()
     if (dataUrl) window.electronAPI.saveImage(dataUrl)
-  }, [imageUrl, capture])
+  }, [hasImage, capture])
+  void handleSave
 
   const buildSaveProjectPayload = useCallback(async (): Promise<SaveProjectPayload | null> => {
-    if (!imageUrl) return null
+    if (images.length === 0) return null
     const renderedImageDataUrl = await capture()
     const now = new Date().toISOString()
+    const firstEl = getImageEl(images[0].id)
     return {
       project: {
-        version: 1,
+        version: 2,
         createdAt: now,
         updatedAt: now,
         annotations,
         placedArrows,
         placedShapes,
+        layout: rows,
         llmMapping: {
           notes: annotations.map((ann, index) => ({
             index: index + 1,
             id: ann.id,
             text: ann.text,
-            point: ann.point,
             color: ann.color,
+            ...(ann.point ? { point: ann.point } : {}),
+            ...(ann.imageId ? { imageId: ann.imageId } : {}),
             ...(ann.rect ? { rect: ann.rect } : {}),
           })),
         },
-        canvas: imageRef.current
+        canvas: firstEl
           ? {
-              width: imageRef.current.naturalWidth,
-              height: imageRef.current.naturalHeight,
+              width: firstEl.naturalWidth,
+              height: firstEl.naturalHeight,
             }
           : null,
       },
-      sourceImageDataUrl: imageUrl,
+      sourceImageDataUrl: images[0].dataUrl,
+      sourceImages: images.map((im) => ({ id: im.id, dataUrl: im.dataUrl })),
       renderedImageDataUrl,
     }
-  }, [annotations, capture, imageUrl, placedArrows, placedShapes])
+  }, [annotations, capture, getImageEl, images, rows, placedArrows, placedShapes])
 
   const handleSaveProject = useCallback(async (): Promise<void> => {
     try {
@@ -708,7 +954,7 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     setProjectDragState('idle')
-  }, [imageUrl, annotations, placedArrows, placedShapes])
+  }, [images, rows, annotations, placedArrows, placedShapes])
 
   const handleBuildProjectBundleForDrag = useCallback(async (): Promise<void> => {
     if (typeof window.electronAPI.writeDragProjectTemp !== 'function') {
@@ -736,7 +982,7 @@ export default function App(): React.ReactElement {
   }, [buildSaveProjectPayload])
 
   const handleCopy = useCallback(async (): Promise<void> => {
-    if (!imageUrl) return
+    if (!hasImage) return
     setCopyState('copying')
     const dataUrl = await capture()
     if (dataUrl) {
@@ -746,13 +992,14 @@ export default function App(): React.ReactElement {
     } else {
       setCopyState('idle')
     }
-  }, [imageUrl, capture])
+  }, [hasImage, capture])
 
-  // ── Crop ─────────────────────────────────────────────────────────────────
+  // ── Crop (single-image only) ─────────────────────────────────────────────
 
   const handleStartCrop = useCallback((): void => {
+    if (!canCrop) return
     setCropMode('active')
-  }, [])
+  }, [canCrop])
 
   const handleCancelCrop = useCallback((): void => {
     setCropMode('idle')
@@ -760,19 +1007,22 @@ export default function App(): React.ReactElement {
 
   const handleApplyCrop = useCallback(
     async (rect: CropRect): Promise<void> => {
-      const img = imageRef.current
-      if (!imageUrl || !img) return
+      const first = images[0]
+      const img = first ? imageElsRef.current.get(first.id) : null
+      if (images.length !== 1 || !first || !img) {
+        setCropMode('idle')
+        return
+      }
       try {
         const displaySize = { width: img.offsetWidth, height: img.offsetHeight }
         const naturalSize = { width: img.naturalWidth, height: img.naturalHeight }
-        const result = await cropImage(imageUrl, rect, displaySize, naturalSize, annotations, placedArrows, placedShapes)
-        setImageUrl(result.dataUrl)
+        const result = await cropImage(first.dataUrl, rect, displaySize, naturalSize, annotations, placedArrows, placedShapes)
+        setImages([{ ...first, dataUrl: result.dataUrl }])
         setAnnotations(result.annotations)
         setPlacedArrows(result.placedArrows)
         setPlacedShapes(result.placedShapes)
         setNewestId(null)
         setTick((t) => t + 1)
-        window.electronAPI.saveSessionImage(result.dataUrl).catch(console.error)
       } catch (err) {
         console.error('Crop failed:', err)
         window.alert('Crop failed. Please try again.')
@@ -780,18 +1030,18 @@ export default function App(): React.ReactElement {
         setCropMode('idle')
       }
     },
-    [imageUrl, annotations, placedArrows, placedShapes],
+    [images, annotations, placedArrows, placedShapes],
   )
 
   // ── Render ───────────────────────────────────────────────────────────────
 
-  // Build SVG arrows from card DOM positions to image annotation points.
-  // `tick` is read here so React re-renders when layout changes.
-  // `tick` forces re-render when card/image layout changes.
+  // Build SVG arrows from card DOM positions to annotation points on the
+  // annotation's own image. `tick` forces re-render when layout changes.
   void tick
   const arrowElements = annotations.map((ann) => {
+    if (!isAnchored(ann)) return null
     const cardEl = cardElsRef.current.get(ann.id)
-    const imgEl = imageRef.current
+    const imgEl = getImageEl(ann.imageId)
     if (!cardEl || !imgEl) return null
 
     const cardRect = cardEl.getBoundingClientRect()
@@ -832,12 +1082,14 @@ export default function App(): React.ReactElement {
   })
 
   const selectedDotAnnotation = selectedAnnotationId
-    ? annotations.find((a) => a.id === selectedAnnotationId && !a.rect)
+    ? annotations.find((a) => a.id === selectedAnnotationId && !a.rect && isAnchored(a))
     : null
 
   const dotToolbarPos = ((): { left: number; top: number } | null => {
-    if (!selectedDotAnnotation || !imageRef.current) return null
-    const imgRect = imageRef.current.getBoundingClientRect()
+    if (!selectedDotAnnotation) return null
+    const imgEl = getImageEl(selectedDotAnnotation.imageId)
+    if (!imgEl) return null
+    const imgRect = imgEl.getBoundingClientRect()
     const target = getArrowTarget(selectedDotAnnotation)
     return {
       left: imgRect.left + target.x * imgRect.width,
@@ -853,7 +1105,7 @@ export default function App(): React.ReactElement {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {isDroppingFile && (
+      {isDroppingFile && !hasImage && (
         <div style={styles.dropOverlay}>
           <div style={styles.dropBox}>
             <div style={styles.dropIcon}>↓</div>
@@ -866,7 +1118,8 @@ export default function App(): React.ReactElement {
         onSaveProject={handleSaveProject}
         onCopy={handleCopy}
         onCrop={handleStartCrop}
-        hasImage={!!imageUrl}
+        hasImage={hasImage}
+        canCrop={canCrop}
         copyState={copyState}
         cropMode={cropMode}
         canvasTool={canvasTool}
@@ -888,9 +1141,10 @@ export default function App(): React.ReactElement {
         />
 
         <Canvas
-          imageUrl={imageUrl}
+          images={images}
+          rows={rows}
           annotations={annotations}
-          imageRef={imageRef}
+          onImageElRef={handleImageElRef}
           onImageClick={handleImageClick}
           onDeselectMarker={handleDeselectMarker}
           isDragReady={isDragReady}
@@ -921,6 +1175,11 @@ export default function App(): React.ReactElement {
           onShapeColorChange={handleShapeColorChange}
           onShapeThicknessChange={handleShapeThicknessChange}
           onDeleteShape={handleDeleteShape}
+          onResizeColumns={handleResizeColumns}
+          dropZonesActive={isDroppingFile && hasImage}
+          activeDropZone={activeDropZone}
+          onDropZoneChange={setActiveDropZone}
+          onWrapperScroll={handleCanvasScroll}
         />
       </div>
 
