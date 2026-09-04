@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Square } from 'lucide-react'
 import type { SaveProjectPayload } from '../../preload/index.d.ts'
-import { Annotation, BoxRect } from './types'
+import { Annotation, BoxRect, CanvasTool, PlacedArrow, PlacedShape, ShapeKind } from './types'
 import TopBar from './components/TopBar'
 import Sidebar from './components/Sidebar'
 import Canvas from './components/Canvas'
 import type { CropRect } from './components/ImageCropOverlay'
 import { cropImage } from './utils/cropImage'
 import { MarkerToolbar, rectCenter } from './components/BoxLayer'
+import { DEFAULT_ARROW_THICKNESS } from './components/ArrowLayer'
+import { DEFAULT_SHAPE_THICKNESS } from './components/ShapeLayer'
 
 // ─── Drag helpers ─────────────────────────────────────────────────────────────
 
@@ -49,6 +51,8 @@ interface ProjectOpenResult {
   project: {
     version: number
     annotations: Annotation[]
+    placedArrows?: PlacedArrow[]
+    placedShapes?: PlacedShape[]
   }
   sourceImageDataUrl: string
 }
@@ -56,6 +60,33 @@ interface ProjectOpenResult {
 function isBundleFileName(name: string): boolean {
   const lower = name.toLowerCase()
   return lower.endsWith('.zip') || lower.endsWith('.speck')
+}
+
+function isValidPlacedArrow(input: unknown): input is PlacedArrow {
+  if (typeof input !== 'object' || !input) return false
+  const arrow = input as PlacedArrow
+  return (
+    typeof arrow.id === 'string' &&
+    typeof arrow.color === 'string' &&
+    typeof arrow.start?.x === 'number' &&
+    typeof arrow.start?.y === 'number' &&
+    typeof arrow.end?.x === 'number' &&
+    typeof arrow.end?.y === 'number'
+  )
+}
+
+function isValidPlacedShape(input: unknown): input is PlacedShape {
+  if (typeof input !== 'object' || !input) return false
+  const shape = input as PlacedShape
+  return (
+    typeof shape.id === 'string' &&
+    (shape.kind === 'square' || shape.kind === 'circle') &&
+    typeof shape.color === 'string' &&
+    typeof shape.rect?.x === 'number' &&
+    typeof shape.rect?.y === 'number' &&
+    typeof shape.rect?.w === 'number' &&
+    typeof shape.rect?.h === 'number'
+  )
 }
 
 function isValidAnnotation(input: unknown): input is Annotation {
@@ -86,8 +117,15 @@ export default function App(): React.ReactElement {
   const [isExporting, setIsExporting] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>('idle')
   const [cropMode, setCropMode] = useState<'idle' | 'active'>('idle')
+  const [canvasTool, setCanvasTool] = useState<CanvasTool>('note')
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
+  const [placedArrows, setPlacedArrows] = useState<PlacedArrow[]>([])
+  const [selectedArrowId, setSelectedArrowId] = useState<string | null>(null)
+  const [placedShapes, setPlacedShapes] = useState<PlacedShape[]>([])
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null)
   const colorIndexRef = useRef(0)
+  const arrowColorIndexRef = useRef(0)
+  const shapeColorIndexRef = useRef(0)
 
   // Refs for viewport-level SVG arrow overlay
   const cardElsRef = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -206,8 +244,13 @@ export default function App(): React.ReactElement {
   const loadImage = useCallback((dataUrl: string): void => {
     setImageUrl(dataUrl)
     setAnnotations([])
+    setPlacedArrows([])
+    setPlacedShapes([])
     setNewestId(null)
     setSelectedAnnotationId(null)
+    setSelectedArrowId(null)
+    setSelectedShapeId(null)
+    setCanvasTool('note')
     // Persist so the image survives a refresh or restart
     window.electronAPI.saveSessionImage(dataUrl).catch(console.error)
   }, [])
@@ -275,10 +318,36 @@ export default function App(): React.ReactElement {
         point: { x: clamp01(ann.point.x), y: clamp01(ann.point.y) },
       }))
 
+    const safeArrows = Array.isArray(result.project.placedArrows)
+      ? result.project.placedArrows.filter(isValidPlacedArrow).map((arrow) => ({
+          ...arrow,
+          start: { x: clamp01(arrow.start.x), y: clamp01(arrow.start.y) },
+          end: { x: clamp01(arrow.end.x), y: clamp01(arrow.end.y) },
+        }))
+      : []
+
+    const safeShapes = Array.isArray(result.project.placedShapes)
+      ? result.project.placedShapes.filter(isValidPlacedShape).map((shape) => ({
+          ...shape,
+          rect: {
+            x: clamp01(shape.rect.x),
+            y: clamp01(shape.rect.y),
+            w: Math.max(0, Math.min(1, shape.rect.w)),
+            h: Math.max(0, Math.min(1, shape.rect.h)),
+          },
+        }))
+      : []
+
     setImageUrl(result.sourceImageDataUrl)
     setAnnotations(safeAnnotations)
+    setPlacedArrows(safeArrows)
+    setPlacedShapes(safeShapes)
     setNewestId(null)
+    setSelectedArrowId(null)
+    setSelectedShapeId(null)
     colorIndexRef.current = safeAnnotations.length % ANNOTATION_COLORS.length
+    arrowColorIndexRef.current = safeArrows.length % ANNOTATION_COLORS.length
+    shapeColorIndexRef.current = safeShapes.length % ANNOTATION_COLORS.length
     setTick((t) => t + 1)
     window.electronAPI.saveSessionImage(result.sourceImageDataUrl).catch(console.error)
   }, [])
@@ -330,28 +399,56 @@ export default function App(): React.ReactElement {
     reader.readAsDataURL(file)
   }, [loadImage, openProjectFromPath])
 
-  // Cmd+V keyboard shortcut
+  // Cmd+V keyboard shortcut + canvas tool shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement
+      const inTextField =
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'INPUT' ||
+        target.isContentEditable
+
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
-        // Let normal paste work inside text inputs
-        const target = e.target as HTMLElement
-        if (
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'INPUT' ||
-          target.isContentEditable
-        ) return
+        if (inTextField) return
         e.preventDefault()
         loadFromClipboard()
+        return
+      }
+
+      if (inTextField || cropMode === 'active' || !imageUrl) return
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault()
+        setCanvasTool('note')
+        setSelectedArrowId(null)
+        setSelectedShapeId(null)
+      } else if (e.key === 'a' || e.key === 'A') {
+        e.preventDefault()
+        setCanvasTool('arrow')
+        setSelectedAnnotationId(null)
+        setSelectedShapeId(null)
+      } else if (e.key === 's' || e.key === 'S') {
+        e.preventDefault()
+        setCanvasTool('square')
+        setSelectedAnnotationId(null)
+        setSelectedArrowId(null)
+      } else if (e.key === 'c' || e.key === 'C') {
+        e.preventDefault()
+        setCanvasTool('circle')
+        setSelectedAnnotationId(null)
+        setSelectedArrowId(null)
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [loadFromClipboard])
+  }, [cropMode, imageUrl, loadFromClipboard])
 
   // ── Annotation actions ───────────────────────────────────────────────────
 
   const handleImageClick = useCallback((x: number, y: number): void => {
+    if (canvasTool !== 'note') return
+    setSelectedArrowId(null)
+    setSelectedShapeId(null)
     const color = ANNOTATION_COLORS[colorIndexRef.current % ANNOTATION_COLORS.length]
     colorIndexRef.current++
     const newAnnotation: Annotation = {
@@ -362,6 +459,77 @@ export default function App(): React.ReactElement {
     }
     setAnnotations((prev) => [...prev, newAnnotation])
     setNewestId(newAnnotation.id)
+  }, [canvasTool])
+
+  const handleCreateArrow = useCallback((start: { x: number; y: number }, end: { x: number; y: number }): void => {
+    const color = ANNOTATION_COLORS[arrowColorIndexRef.current % ANNOTATION_COLORS.length]
+    arrowColorIndexRef.current++
+    const arrow: PlacedArrow = {
+      id: generateId(),
+      start,
+      end,
+      color,
+      thickness: DEFAULT_ARROW_THICKNESS,
+    }
+    setPlacedArrows((prev) => [...prev, arrow])
+    setSelectedArrowId(arrow.id)
+  }, [])
+
+  const handleUpdateArrow = useCallback((id: string, start: { x: number; y: number }, end: { x: number; y: number }): void => {
+    setPlacedArrows((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, start, end } : a)),
+    )
+  }, [])
+
+  const handleArrowColorChange = useCallback((id: string, color: string): void => {
+    setPlacedArrows((prev) => prev.map((a) => (a.id === id ? { ...a, color } : a)))
+  }, [])
+
+  const handleArrowThicknessChange = useCallback((id: string, thickness: number): void => {
+    setPlacedArrows((prev) => prev.map((a) => (a.id === id ? { ...a, thickness } : a)))
+  }, [])
+
+  const handleDeleteArrow = useCallback((id: string): void => {
+    setPlacedArrows((prev) => prev.filter((a) => a.id !== id))
+    setSelectedArrowId((prev) => (prev === id ? null : prev))
+  }, [])
+
+  const handleCreateShape = useCallback((kind: ShapeKind, rect: BoxRect): void => {
+    const color = ANNOTATION_COLORS[shapeColorIndexRef.current % ANNOTATION_COLORS.length]
+    shapeColorIndexRef.current++
+    const shape: PlacedShape = {
+      id: generateId(),
+      kind,
+      rect,
+      color,
+      thickness: DEFAULT_SHAPE_THICKNESS,
+    }
+    setPlacedShapes((prev) => [...prev, shape])
+    setSelectedShapeId(shape.id)
+  }, [])
+
+  const handleUpdateShapeRect = useCallback((id: string, rect: BoxRect): void => {
+    setPlacedShapes((prev) => prev.map((s) => (s.id === id ? { ...s, rect } : s)))
+  }, [])
+
+  const handleShapeColorChange = useCallback((id: string, color: string): void => {
+    setPlacedShapes((prev) => prev.map((s) => (s.id === id ? { ...s, color } : s)))
+  }, [])
+
+  const handleShapeThicknessChange = useCallback((id: string, thickness: number): void => {
+    setPlacedShapes((prev) => prev.map((s) => (s.id === id ? { ...s, thickness } : s)))
+  }, [])
+
+  const handleDeleteShape = useCallback((id: string): void => {
+    setPlacedShapes((prev) => prev.filter((s) => s.id !== id))
+    setSelectedShapeId((prev) => (prev === id ? null : prev))
+  }, [])
+
+  const handleCanvasToolChange = useCallback((tool: CanvasTool): void => {
+    setCanvasTool(tool)
+    if (tool !== 'note') setSelectedAnnotationId(null)
+    if (tool !== 'arrow') setSelectedArrowId(null)
+    if (tool !== 'square' && tool !== 'circle') setSelectedShapeId(null)
   }, [])
 
   const handleAddNote = useCallback((): void => {
@@ -372,6 +540,13 @@ export default function App(): React.ReactElement {
   const handleChangeText = useCallback((id: string, text: string): void => {
     setAnnotations((prev) => prev.map((a) => (a.id === id ? { ...a, text } : a)))
   }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.onAnnotationTextSync?.(({ id, text }) => {
+      handleChangeText(id, text)
+    })
+    return () => unsubscribe?.()
+  }, [handleChangeText])
 
   const handleDelete = useCallback((id: string): void => {
     setAnnotations((prev) => prev.filter((a) => a.id !== id))
@@ -475,7 +650,7 @@ export default function App(): React.ReactElement {
     return () => {
       if (dragDebounceRef.current) clearTimeout(dragDebounceRef.current)
     }
-  }, [imageUrl, annotations, capture])
+  }, [imageUrl, annotations, placedArrows, placedShapes, capture])
 
   const handleSave = useCallback(async (): Promise<void> => {
     if (!imageUrl) return
@@ -493,6 +668,8 @@ export default function App(): React.ReactElement {
         createdAt: now,
         updatedAt: now,
         annotations,
+        placedArrows,
+        placedShapes,
         llmMapping: {
           notes: annotations.map((ann, index) => ({
             index: index + 1,
@@ -513,7 +690,7 @@ export default function App(): React.ReactElement {
       sourceImageDataUrl: imageUrl,
       renderedImageDataUrl,
     }
-  }, [annotations, capture, imageUrl])
+  }, [annotations, capture, imageUrl, placedArrows, placedShapes])
 
   const handleSaveProject = useCallback(async (): Promise<void> => {
     try {
@@ -531,7 +708,7 @@ export default function App(): React.ReactElement {
 
   useEffect(() => {
     setProjectDragState('idle')
-  }, [imageUrl, annotations])
+  }, [imageUrl, annotations, placedArrows, placedShapes])
 
   const handleBuildProjectBundleForDrag = useCallback(async (): Promise<void> => {
     if (typeof window.electronAPI.writeDragProjectTemp !== 'function') {
@@ -588,9 +765,11 @@ export default function App(): React.ReactElement {
       try {
         const displaySize = { width: img.offsetWidth, height: img.offsetHeight }
         const naturalSize = { width: img.naturalWidth, height: img.naturalHeight }
-        const result = await cropImage(imageUrl, rect, displaySize, naturalSize, annotations)
+        const result = await cropImage(imageUrl, rect, displaySize, naturalSize, annotations, placedArrows, placedShapes)
         setImageUrl(result.dataUrl)
         setAnnotations(result.annotations)
+        setPlacedArrows(result.placedArrows)
+        setPlacedShapes(result.placedShapes)
         setNewestId(null)
         setTick((t) => t + 1)
         window.electronAPI.saveSessionImage(result.dataUrl).catch(console.error)
@@ -601,13 +780,14 @@ export default function App(): React.ReactElement {
         setCropMode('idle')
       }
     },
-    [imageUrl, annotations],
+    [imageUrl, annotations, placedArrows, placedShapes],
   )
 
   // ── Render ───────────────────────────────────────────────────────────────
 
   // Build SVG arrows from card DOM positions to image annotation points.
   // `tick` is read here so React re-renders when layout changes.
+  // `tick` forces re-render when card/image layout changes.
   void tick
   const arrowElements = annotations.map((ann) => {
     const cardEl = cardElsRef.current.get(ann.id)
@@ -639,7 +819,7 @@ export default function App(): React.ReactElement {
             <circle cx={tx} cy={ty} r={2} fill="#fff" />
           </>
         )}
-        {isDot && (
+        {isDot && canvasTool === 'note' && (
           <circle
             cx={tx} cy={ty} r={10}
             fill="transparent"
@@ -689,6 +869,8 @@ export default function App(): React.ReactElement {
         hasImage={!!imageUrl}
         copyState={copyState}
         cropMode={cropMode}
+        canvasTool={canvasTool}
+        onCanvasToolChange={handleCanvasToolChange}
       />
 
       <div style={styles.body}>
@@ -722,10 +904,27 @@ export default function App(): React.ReactElement {
           onUpdateAnnotationRect={handleUpdateAnnotationRect}
           onAnnotationColorChange={handleAnnotationColorChange}
           onConvertToDot={handleConvertToDot}
+          canvasTool={canvasTool}
+          placedArrows={placedArrows}
+          selectedArrowId={selectedArrowId}
+          onSelectArrow={setSelectedArrowId}
+          onCreateArrow={handleCreateArrow}
+          onUpdateArrow={handleUpdateArrow}
+          onArrowColorChange={handleArrowColorChange}
+          onArrowThicknessChange={handleArrowThicknessChange}
+          onDeleteArrow={handleDeleteArrow}
+          placedShapes={placedShapes}
+          selectedShapeId={selectedShapeId}
+          onSelectShape={setSelectedShapeId}
+          onCreateShape={handleCreateShape}
+          onUpdateShapeRect={handleUpdateShapeRect}
+          onShapeColorChange={handleShapeColorChange}
+          onShapeThicknessChange={handleShapeThicknessChange}
+          onDeleteShape={handleDeleteShape}
         />
       </div>
 
-      {/* Full-viewport SVG: arrows + draggable dots. Hidden while in crop mode. */}
+      {/* Full-viewport SVG: note connector arrows + draggable dots. Hidden while in crop mode. */}
       {cropMode === 'idle' && (
         <svg
           style={{
@@ -743,13 +942,13 @@ export default function App(): React.ReactElement {
       )}
 
       {/* Floating toolbar for selected dot markers */}
-      {cropMode === 'idle' && selectedDotAnnotation && dotToolbarPos && (
+      {cropMode === 'idle' && canvasTool === 'note' && selectedDotAnnotation && dotToolbarPos && (
         <div
           style={{
             position: 'fixed',
             left: dotToolbarPos.left,
-            top: dotToolbarPos.top - 44,
-            transform: 'translateX(-50%)',
+            top: dotToolbarPos.top,
+            transform: 'translate(-50%, calc(-100% - 6px))',
             zIndex: 20,
             pointerEvents: 'all',
           }}

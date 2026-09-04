@@ -1,0 +1,18 @@
+---
+description: SpecShot product mission and update reminder
+alwaysApply: true
+---
+
+# SpecShot mission
+
+**SpecShot** is a macOS desktop app (Electron) for annotating screenshots with click-to-place notes, dashed arrows, and colored sidebar cards—then exporting a pixel-perfect Retina image or a structured `.zip`/`.speck` bundle for LLM intake.
+
+Canonical mission text: `~/.cursor/skills/specshot-devkit/MISSION.md`
+
+## After product changes
+
+When export format, bundle schema, or core UX behavior changes meaningfully, ask once in one short line:
+
+**Update SpecShot mission?**
+
+If yes, update both `~/.cursor/skills/specshot-devkit/MISSION.md` and the **Mission** section at the top of `CLAUDE.md`.

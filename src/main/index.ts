@@ -7,9 +7,11 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  session,
   Tray,
 } from 'electron'
 import path from 'path'
+import { setupWebContextMenu } from './contextMenu'
 import fs from 'fs'
 import os from 'os'
 import AdmZip from 'adm-zip'
@@ -19,6 +21,29 @@ import AdmZip from 'adm-zip'
 interface ProjectPoint {
   x: number
   y: number
+}
+
+interface ProjectPlacedArrow {
+  id: string
+  start: ProjectPoint
+  end: ProjectPoint
+  thickness?: number
+  color: string
+}
+
+interface ProjectRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+interface ProjectPlacedShape {
+  id: string
+  kind: 'square' | 'circle'
+  rect: ProjectRect
+  thickness?: number
+  color: string
 }
 
 interface ProjectAnnotation {
@@ -38,6 +63,8 @@ interface ProjectManifest {
   createdAt: string
   updatedAt: string
   annotations: ProjectAnnotation[]
+  placedArrows?: ProjectPlacedArrow[]
+  placedShapes?: ProjectPlacedShape[]
   llmMapping: {
     notes: Array<{
       index: number
@@ -374,8 +401,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      spellcheck: true,
     },
   })
+
+  setupWebContextMenu(mainWindow, isDev)
 
   if (isDev) {
     // electron-vite sets ELECTRON_RENDERER_URL to the actual renderer server
@@ -616,6 +646,8 @@ function registerIpcHandlers(): void {
 app.whenReady().then(() => {
   if (process.platform === 'darwin') {
     app.dock.hide()
+  } else {
+    session.defaultSession.setSpellCheckerLanguages(['en-US'])
   }
 
   createWindow()

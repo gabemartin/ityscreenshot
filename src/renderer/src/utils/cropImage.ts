@@ -1,4 +1,4 @@
-import { Annotation } from '../types'
+import { Annotation, PlacedArrow, PlacedShape } from '../types'
 import type { CropRect } from '../components/ImageCropOverlay'
 
 const MIN_DIM = 0.005
@@ -6,6 +6,8 @@ const MIN_DIM = 0.005
 export interface CropResult {
   dataUrl: string
   annotations: Annotation[]
+  placedArrows: PlacedArrow[]
+  placedShapes: PlacedShape[]
 }
 
 /**
@@ -23,6 +25,8 @@ export async function cropImage(
   displaySize: { width: number; height: number },
   naturalSize: { width: number; height: number },
   annotations: Annotation[],
+  placedArrows: PlacedArrow[] = [],
+  placedShapes: PlacedShape[] = [],
 ): Promise<CropResult> {
   // Scale factors: display → natural pixels
   const sx = naturalSize.width / displaySize.width
@@ -76,7 +80,43 @@ export async function cropImage(
     }
   }
 
-  return { dataUrl, annotations: remapped }
+  const remappedArrows: PlacedArrow[] = []
+  for (const arrow of placedArrows) {
+    const remapPoint = (p: { x: number; y: number }): { x: number; y: number } | null => {
+      const px = p.x * naturalSize.width
+      const py = p.y * naturalSize.height
+      if (px < nx || px > nRight || py < ny || py > nBottom) return null
+      return {
+        x: Math.max(0, Math.min(1, (px - nx) / nw)),
+        y: Math.max(0, Math.min(1, (py - ny) / nh)),
+      }
+    }
+    const start = remapPoint(arrow.start)
+    const end = remapPoint(arrow.end)
+    if (start && end) remappedArrows.push({ ...arrow, start, end })
+  }
+
+  const remappedShapes: PlacedShape[] = []
+  for (const shape of placedShapes) {
+    const cx = (shape.rect.x + shape.rect.w / 2) * naturalSize.width
+    const cy = (shape.rect.y + shape.rect.h / 2) * naturalSize.height
+    if (cx < nx || cx > nRight || cy < ny || cy > nBottom) continue
+    const rx = shape.rect.x * naturalSize.width
+    const ry = shape.rect.y * naturalSize.height
+    const rw = shape.rect.w * naturalSize.width
+    const rh = shape.rect.h * naturalSize.height
+    remappedShapes.push({
+      ...shape,
+      rect: {
+        x: Math.max(0, Math.min(1, (rx - nx) / nw)),
+        y: Math.max(0, Math.min(1, (ry - ny) / nh)),
+        w: Math.max(MIN_DIM, Math.min(1, rw / nw)),
+        h: Math.max(MIN_DIM, Math.min(1, rh / nh)),
+      },
+    })
+  }
+
+  return { dataUrl, annotations: remapped, placedArrows: remappedArrows, placedShapes: remappedShapes }
 }
 
 function loadImg(src: string): Promise<HTMLImageElement> {

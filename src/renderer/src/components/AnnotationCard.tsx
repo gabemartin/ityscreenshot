@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useCallback } from 'react'
 import { Annotation } from '../types'
+import IdPill from './IdPill'
 
 interface AnnotationCardProps {
   annotation: Annotation
@@ -97,9 +98,7 @@ export default function AnnotationCard({
           <span style={{ ...styles.cardNumber, color: annotation.color }}>
             {index + 1}
           </span>
-          <span style={styles.cardId}>
-            {annotation.id.slice(-5).toUpperCase()}
-          </span>
+          <IdPill id={annotation.id} color={annotation.color} />
         </div>
 
         <button
@@ -117,6 +116,8 @@ export default function AnnotationCard({
         style={styles.textarea}
         value={annotation.text}
         onChange={handleChange}
+        spellCheck
+        data-annotation-id={annotation.id}
         placeholder="Add a note…"
         rows={2}
       />
@@ -156,14 +157,6 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.08em',
     fontVariantNumeric: 'tabular-nums',
     lineHeight: 1,
-  },
-  cardId: {
-    fontFamily: "'SF Mono', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace",
-    fontSize: 11,
-    fontWeight: 500,
-    letterSpacing: '0.04em',
-    lineHeight: 1,
-    color: 'var(--color-text-secondary)',
   },
   deleteBtn: {
     width: 20,

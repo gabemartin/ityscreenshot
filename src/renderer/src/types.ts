@@ -19,3 +19,27 @@ export interface BoxRect {
   h: number // 0-1 fraction (height)
 }
 
+/** Standalone directional arrow drawn directly on the screenshot. */
+export interface PlacedArrow {
+  id: string
+  start: AnnotationPoint
+  end: AnnotationPoint
+  color: string
+  /** Shaft stroke width in image-space px. Defaults to DEFAULT_ARROW_THICKNESS when unset. */
+  thickness?: number
+}
+
+export type ShapeKind = 'square' | 'circle'
+
+/** Standalone square/rectangle or circle/ellipse drawn directly on the screenshot. */
+export interface PlacedShape {
+  id: string
+  kind: ShapeKind
+  rect: BoxRect
+  color: string
+  /** Outline stroke width in image-space px. Defaults to DEFAULT_SHAPE_THICKNESS when unset. */
+  thickness?: number
+}
+
+export type CanvasTool = 'note' | 'arrow' | 'square' | 'circle'
+

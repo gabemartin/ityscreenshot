@@ -1,4 +1,6 @@
 import React from 'react'
+import { ArrowUpRight, Circle, MousePointer2, Square } from 'lucide-react'
+import type { CanvasTool } from '../types'
 
 interface TopBarProps {
   onOpenProject: () => void
@@ -8,6 +10,8 @@ interface TopBarProps {
   hasImage: boolean
   copyState?: 'idle' | 'copying' | 'copied'
   cropMode?: 'idle' | 'active'
+  canvasTool: CanvasTool
+  onCanvasToolChange: (tool: CanvasTool) => void
 }
 
 export default function TopBar({
@@ -18,11 +22,14 @@ export default function TopBar({
   hasImage,
   copyState = 'idle',
   cropMode = 'idle',
+  canvasTool,
+  onCanvasToolChange,
 }: TopBarProps): React.ReactElement {
   const isBusy = copyState === 'copying'
   const isCopied = copyState === 'copied'
   const copyActive = hasImage && !isBusy && cropMode === 'idle'
   const cropActive = hasImage && cropMode === 'idle'
+  const toolsActive = hasImage && cropMode === 'idle'
 
   return (
     <div style={styles.topBar}>
@@ -31,6 +38,66 @@ export default function TopBar({
 
       {/* Draggable title region */}
       <div style={styles.dragRegion} />
+
+      {/* Canvas tools */}
+      <div style={styles.toolGroup}>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            ...(canvasTool === 'note' ? styles.toolBtnActive : {}),
+            opacity: toolsActive ? 1 : 0.4,
+            cursor: toolsActive ? 'pointer' : 'not-allowed',
+          }}
+          onClick={toolsActive ? () => onCanvasToolChange('note') : undefined}
+          title="Note tool — click to place notes (N)"
+          aria-pressed={canvasTool === 'note'}
+        >
+          <MousePointer2 size={14} strokeWidth={2.25} />
+        </button>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            ...(canvasTool === 'arrow' ? styles.toolBtnActive : {}),
+            opacity: toolsActive ? 1 : 0.4,
+            cursor: toolsActive ? 'pointer' : 'not-allowed',
+          }}
+          onClick={toolsActive ? () => onCanvasToolChange('arrow') : undefined}
+          title="Arrow tool — drag to draw arrows (A)"
+          aria-pressed={canvasTool === 'arrow'}
+        >
+          <ArrowUpRight size={14} strokeWidth={2.25} />
+        </button>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            ...(canvasTool === 'square' ? styles.toolBtnActive : {}),
+            opacity: toolsActive ? 1 : 0.4,
+            cursor: toolsActive ? 'pointer' : 'not-allowed',
+          }}
+          onClick={toolsActive ? () => onCanvasToolChange('square') : undefined}
+          title="Square tool — drag to draw a resizable square (S)"
+          aria-pressed={canvasTool === 'square'}
+        >
+          <Square size={13} strokeWidth={2.25} />
+        </button>
+        <button
+          type="button"
+          style={{
+            ...styles.toolBtn,
+            ...(canvasTool === 'circle' ? styles.toolBtnActive : {}),
+            opacity: toolsActive ? 1 : 0.4,
+            cursor: toolsActive ? 'pointer' : 'not-allowed',
+          }}
+          onClick={toolsActive ? () => onCanvasToolChange('circle') : undefined}
+          title="Circle tool — drag to draw a resizable circle (C)"
+          aria-pressed={canvasTool === 'circle'}
+        >
+          <Circle size={13} strokeWidth={2.25} />
+        </button>
+      </div>
 
       {/* Action buttons */}
       <div style={styles.actions}>
@@ -115,6 +182,31 @@ const styles: Record<string, AppCSSProperties> = {
   },
   dragRegion: {
     flex: 1,
+  },
+  toolGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    marginRight: 12,
+    WebkitAppRegion: 'no-drag',
+  },
+  toolBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    border: '1px solid var(--color-border)',
+    background: 'var(--color-btn-secondary-bg)',
+    color: 'var(--color-btn-secondary-text)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    transition: 'background 0.12s, border-color 0.12s',
+  },
+  toolBtnActive: {
+    background: 'var(--color-btn-primary-bg)',
+    color: 'var(--color-btn-primary-text)',
+    borderColor: 'transparent',
   },
   actions: {
     display: 'flex',

@@ -6,7 +6,7 @@ const COLORS = ['#E91E8C', '#2979FF', '#00BFA5', '#FF6D00']
 const HANDLE_PX = 8
 const MIN_DIM = 0.005
 
-type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
 const ALL_HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
@@ -32,7 +32,7 @@ const HANDLE_CURSOR: Record<Handle, string> = {
   w: 'ew-resize',
 }
 
-function clamp(v: number, lo: number, hi: number): number {
+export function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v))
 }
 
@@ -40,7 +40,7 @@ function rectCenter(rect: BoxRect): { x: number; y: number } {
   return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 }
 }
 
-function applyResize(orig: BoxRect, handle: Handle, dx: number, dy: number): BoxRect {
+export function applyResize(orig: BoxRect, handle: Handle, dx: number, dy: number): BoxRect {
   let { x, y, w, h } = orig
   if (handle.includes('w')) { x = orig.x + dx; w = orig.w - dx }
   if (handle.includes('e')) { w = orig.w + dx }
@@ -63,6 +63,7 @@ interface BoxLayerProps {
   onColorChange: (id: string, color: string) => void
   onConvertToDot: (id: string) => void
   imgRef: React.RefObject<HTMLImageElement | null>
+  interactive?: boolean
 }
 
 export default function BoxLayer({
@@ -73,6 +74,7 @@ export default function BoxLayer({
   onColorChange,
   onConvertToDot,
   imgRef,
+  interactive = true,
 }: BoxLayerProps): React.ReactElement {
   type DragState = {
     annId: string
@@ -168,7 +170,7 @@ export default function BoxLayer({
               border: `4px solid ${ann.color}`,
               background: selected ? `${ann.color}28` : `${ann.color}0E`,
               boxSizing: 'border-box',
-              pointerEvents: 'all',
+              pointerEvents: interactive ? 'all' : 'none',
               cursor: 'move',
               overflow: 'visible',
               borderRadius: 1,
@@ -240,7 +242,7 @@ export function MarkerToolbar({
     <div
       style={{
         position: 'absolute',
-        bottom: 'calc(100% + 10px)',
+        bottom: 'calc(100% + 6px)',
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',
@@ -322,4 +324,4 @@ export function MarkerToolbar({
   )
 }
 
-export { rectCenter, COLORS as MARKER_COLORS }
+export { rectCenter, COLORS as MARKER_COLORS, ALL_HANDLES, HANDLE_POS, HANDLE_CURSOR, HANDLE_PX }

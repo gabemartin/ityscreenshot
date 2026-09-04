@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Grip, Loader2, PackagePlus } from 'lucide-react'
-import { Annotation, BoxRect } from '../types'
+import { Annotation, BoxRect, CanvasTool, PlacedArrow, PlacedShape, ShapeKind } from '../types'
 import ImageCropOverlay, { CropRect } from './ImageCropOverlay'
 import BoxLayer from './BoxLayer'
+import ArrowLayer from './ArrowLayer'
+import ShapeLayer from './ShapeLayer'
 
 interface CanvasProps {
   imageUrl: string | null
@@ -21,6 +23,23 @@ interface CanvasProps {
   onUpdateAnnotationRect: (id: string, rect: BoxRect) => void
   onAnnotationColorChange: (id: string, color: string) => void
   onConvertToDot: (id: string) => void
+  canvasTool: CanvasTool
+  placedArrows: PlacedArrow[]
+  selectedArrowId: string | null
+  onSelectArrow: (id: string | null) => void
+  onCreateArrow: (start: { x: number; y: number }, end: { x: number; y: number }) => void
+  onUpdateArrow: (id: string, start: { x: number; y: number }, end: { x: number; y: number }) => void
+  onArrowColorChange: (id: string, color: string) => void
+  onArrowThicknessChange: (id: string, thickness: number) => void
+  onDeleteArrow: (id: string) => void
+  placedShapes: PlacedShape[]
+  selectedShapeId: string | null
+  onSelectShape: (id: string | null) => void
+  onCreateShape: (kind: ShapeKind, rect: BoxRect) => void
+  onUpdateShapeRect: (id: string, rect: BoxRect) => void
+  onShapeColorChange: (id: string, color: string) => void
+  onShapeThicknessChange: (id: string, thickness: number) => void
+  onDeleteShape: (id: string) => void
 }
 
 export default function Canvas({
@@ -40,6 +59,23 @@ export default function Canvas({
   onUpdateAnnotationRect,
   onAnnotationColorChange,
   onConvertToDot,
+  canvasTool,
+  placedArrows,
+  selectedArrowId,
+  onSelectArrow,
+  onCreateArrow,
+  onUpdateArrow,
+  onArrowColorChange,
+  onArrowThicknessChange,
+  onDeleteArrow,
+  placedShapes,
+  selectedShapeId,
+  onSelectShape,
+  onCreateShape,
+  onUpdateShapeRect,
+  onShapeColorChange,
+  onShapeThicknessChange,
+  onDeleteShape,
 }: CanvasProps): React.ReactElement {
   const localRef = useRef<HTMLImageElement>(null)
   const imgRef = imageRef ?? localRef
@@ -61,9 +97,14 @@ export default function Canvas({
     return () => observer.disconnect()
   }, [imageUrl, updateSize, imgRef])
 
+  const shapeKind: ShapeKind | null =
+    canvasTool === 'square' ? 'square' : canvasTool === 'circle' ? 'circle' : null
+
   const handleClick = (e: React.MouseEvent<HTMLImageElement>): void => {
-    if (cropMode === 'active') return
+    if (cropMode === 'active' || canvasTool === 'arrow' || shapeKind) return
     onDeselectMarker()
+    onSelectArrow(null)
+    onSelectShape(null)
     const el = imgRef.current
     if (!el) return
     const rect = el.getBoundingClientRect()
@@ -74,11 +115,15 @@ export default function Canvas({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onSelectAnnotation(null)
+      if (e.key === 'Escape') {
+        onSelectAnnotation(null)
+        onSelectArrow(null)
+        onSelectShape(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return (): void => window.removeEventListener('keydown', onKey)
-  }, [onSelectAnnotation])
+  }, [onSelectAnnotation, onSelectArrow, onSelectShape])
 
   if (!imageUrl) {
     return (
@@ -111,28 +156,65 @@ export default function Canvas({
         style={styles.imageContainer}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        onMouseDown={() => onDeselectMarker()}
+        onMouseDown={() => {
+          if (canvasTool === 'note') onDeselectMarker()
+        }}
       >
         <img
           ref={imgRef}
           src={imageUrl}
           alt="Screenshot"
-          style={{ ...styles.image, cursor: cropMode === 'active' ? 'default' : 'crosshair' }}
+          style={{
+            ...styles.image,
+            cursor:
+              cropMode === 'active'
+                ? 'default'
+                : canvasTool === 'arrow'
+                  ? 'crosshair'
+                  : 'crosshair',
+          }}
           onClick={handleClick}
           onLoad={updateSize}
           draggable={false}
         />
 
         {cropMode === 'idle' && (
-          <BoxLayer
-            annotations={annotations}
-            selectedId={selectedAnnotationId}
-            onSelect={onSelectAnnotation}
-            onUpdateRect={onUpdateAnnotationRect}
-            onColorChange={onAnnotationColorChange}
-            onConvertToDot={onConvertToDot}
-            imgRef={imgRef}
-          />
+          <>
+            <BoxLayer
+              annotations={annotations}
+              selectedId={canvasTool === 'note' ? selectedAnnotationId : null}
+              onSelect={onSelectAnnotation}
+              onUpdateRect={onUpdateAnnotationRect}
+              onColorChange={onAnnotationColorChange}
+              onConvertToDot={onConvertToDot}
+              imgRef={imgRef}
+              interactive={canvasTool === 'note'}
+            />
+            <ShapeLayer
+              shapes={placedShapes}
+              selectedId={selectedShapeId}
+              activeKind={shapeKind}
+              imgRef={imgRef}
+              onSelect={onSelectShape}
+              onCreate={onCreateShape}
+              onUpdateRect={onUpdateShapeRect}
+              onColorChange={onShapeColorChange}
+              onThicknessChange={onShapeThicknessChange}
+              onDelete={onDeleteShape}
+            />
+            <ArrowLayer
+              arrows={placedArrows}
+              selectedId={selectedArrowId}
+              active={canvasTool === 'arrow'}
+              imgRef={imgRef}
+              onSelect={onSelectArrow}
+              onCreate={onCreateArrow}
+              onUpdate={onUpdateArrow}
+              onColorChange={onArrowColorChange}
+              onThicknessChange={onArrowThicknessChange}
+              onDelete={onDeleteArrow}
+            />
+          </>
         )}
 
         {cropMode === 'active' && (

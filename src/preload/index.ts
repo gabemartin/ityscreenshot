@@ -91,4 +91,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Required because file.path is not available with contextIsolation: true.
   getPathForFile: (file: File): string =>
     webUtils.getPathForFile(file),
+
+  onAnnotationTextSync: (
+    callback: (payload: { id: string; text: string }) => void,
+  ): (() => void) => {
+    const listener = (_event: unknown, payload: { id: string; text: string }) =>
+      callback(payload)
+    ipcRenderer.on('annotation:text-sync', listener)
+    return () => ipcRenderer.removeListener('annotation:text-sync', listener)
+  },
 })

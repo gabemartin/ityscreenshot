@@ -1,9 +1,13 @@
 # ityscreenshot — Project Context
 
-A macOS desktop app for annotating screenshots to communicate with LLMs. Paste an image, click points on it to create notes, then copy the annotated result back to clipboard as a pixel-perfect screenshot of the UI itself.
+## Mission
+
+**SpecShot** (repo name: `ityscreenshot`) is a macOS desktop app for annotating screenshots so you can communicate UI feedback to an LLM, designer, or teammate. Paste or drop a screenshot, click points to add notes with dashed arrows and colored sidebar cards, then copy a pixel-perfect Retina export—or save a `.zip` / `.speck` bundle with structured annotation data (numbered notes, stable IDs, coordinates) for richer agent intake.
+
+**One-line:** SpecShot turns screenshots into annotated, LLM-ready feedback via quick visual export or structured bundle.
 
 **Repo:** https://github.com/gabemartin/ityscreenshot  
-**Local:** `/Users/gabemartin/Projects/ityscreenshot/ityscreenshot`  
+**Local:** `/Users/gabe/ShipStudio/ityscreenshot`  
 **Run:** `npm install && npm run dev`
 
 ---
