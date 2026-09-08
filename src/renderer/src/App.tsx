@@ -115,9 +115,13 @@ function sanitizeLayout(images: CanvasImage[], rawRows: unknown): LayoutRow[] {
       }
       if (cells.length === 0) continue
       const total = cells.reduce((sum, c) => sum + c.widthFr, 0)
+      const rawScale = rawRow.scale
       rows.push({
         id: typeof rawRow.id === 'string' && rawRow.id ? rawRow.id : generateUid('row'),
         cells: cells.map((c) => ({ ...c, widthFr: c.widthFr / total })),
+        ...(typeof rawScale === 'number' && rawScale > 0 && rawScale <= 1
+          ? { scale: Math.max(0.15, rawScale) }
+          : {}),
       })
     }
   }
@@ -837,6 +841,10 @@ export default function App(): React.ReactElement {
     [],
   )
 
+  const handleResizeRow = useCallback((rowId: string, scale: number): void => {
+    setRows((prev) => prev.map((row) => (row.id === rowId ? { ...row, scale } : row)))
+  }, [])
+
   const handleDragMove = useCallback((): void => setTick((t) => t + 1), [])
 
   const handleReorder = useCallback((fromIndex: number, insertBefore: number): void => {
@@ -1176,6 +1184,7 @@ export default function App(): React.ReactElement {
           onShapeThicknessChange={handleShapeThicknessChange}
           onDeleteShape={handleDeleteShape}
           onResizeColumns={handleResizeColumns}
+          onResizeRow={handleResizeRow}
           dropZonesActive={isDroppingFile && hasImage}
           activeDropZone={activeDropZone}
           onDropZoneChange={setActiveDropZone}

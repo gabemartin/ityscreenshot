@@ -52,6 +52,7 @@ interface CanvasProps {
   onShapeThicknessChange: (id: string, thickness: number) => void
   onDeleteShape: (id: string) => void
   onResizeColumns: (rowId: string, leftIndex: number, leftFr: number, rightFr: number) => void
+  onResizeRow: (rowId: string, scale: number) => void
   dropZonesActive: boolean
   activeDropZone: DropZone | null
   onDropZoneChange: (zone: DropZone | null) => void
@@ -61,6 +62,8 @@ interface CanvasProps {
 const MIN_COLUMN_FR = 0.15
 // Divider snaps to the equal-height split when within this many pixels of it
 const SNAP_PX = 12
+// Smallest row width fraction reachable via vertical resize
+const MIN_ROW_SCALE = 0.2
 
 export default function Canvas({
   images,
@@ -98,6 +101,7 @@ export default function Canvas({
   onShapeThicknessChange,
   onDeleteShape,
   onResizeColumns,
+  onResizeRow,
   dropZonesActive,
   activeDropZone,
   onDropZoneChange,
@@ -193,6 +197,58 @@ export default function Canvas({
       window.removeEventListener('mouseup', onUp)
     }
   }, [onResizeColumns])
+
+  // ── Row resize (vertical): dragging the handle under a row scales the whole
+  // row's width, which scales its images' heights proportionally. ────────────
+  const rowResizeRef = useRef<{
+    rowId: string
+    startY: number
+    startHeight: number
+    startScale: number
+  } | null>(null)
+
+  const startRowResize = useCallback(
+    (e: React.MouseEvent, rowId: string): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      const rowEl = rowElsRef.current.get(rowId)
+      const row = rows.find((r) => r.id === rowId)
+      if (!rowEl || !row) return
+      const height = rowEl.getBoundingClientRect().height
+      if (height <= 0) return
+      rowResizeRef.current = {
+        rowId,
+        startY: e.clientY,
+        startHeight: height,
+        startScale: row.scale ?? 1,
+      }
+      document.body.style.cursor = 'row-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [rows],
+  )
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent): void => {
+      const d = rowResizeRef.current
+      if (!d) return
+      const factor = (d.startHeight + (e.clientY - d.startY)) / d.startHeight
+      const scale = Math.max(MIN_ROW_SCALE, Math.min(1, d.startScale * factor))
+      onResizeRow(d.rowId, scale)
+    }
+    const onUp = (): void => {
+      if (!rowResizeRef.current) return
+      rowResizeRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return (): void => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [onResizeRow])
 
   // ── Drop zones (add to a row's right / add below) ─────────────────────────
   const handleZoneDragOver = useCallback(
@@ -304,10 +360,13 @@ export default function Canvas({
         }}
       >
         {rows.map((row) => (
+          <React.Fragment key={row.id}>
           <div
-            key={row.id}
             ref={(el): void => handleRowRef(row.id, el)}
-            style={styles.row}
+            style={{
+              ...styles.row,
+              ...(isSingle ? {} : { width: `${(row.scale ?? 1) * 100}%` }),
+            }}
           >
             {row.cells.map((cell, i) => {
               const image = imageById.get(cell.imageId)
@@ -358,6 +417,13 @@ export default function Canvas({
               )
             })}
           </div>
+          {!isSingle && (
+            <RowDivider
+              width={`${(row.scale ?? 1) * 100}%`}
+              onMouseDown={(e): void => startRowResize(e, row.id)}
+            />
+          )}
+          </React.Fragment>
         ))}
 
         {projectDragState === 'building' ? (
@@ -486,6 +552,44 @@ function ColumnDivider({
       <div
         style={{
           ...styles.dividerGrip,
+          opacity: hover ? 1 : 0.65,
+          background: hover ? '#2979FF' : 'rgba(40,40,40,0.85)',
+        }}
+      >
+        <Grip size={10} strokeWidth={2} color="#fff" />
+      </div>
+    </div>
+  )
+}
+
+// ─── Row divider (vertical resize) ────────────────────────────────────────────
+
+function RowDivider({
+  width,
+  onMouseDown,
+}: {
+  width: string
+  onMouseDown: (e: React.MouseEvent) => void
+}): React.ReactElement {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      style={{ ...styles.rowDivider, width }}
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Drag to resize row"
+    >
+      <div
+        style={{
+          ...styles.rowDividerLine,
+          background: hover ? '#2979FF' : 'rgba(127,127,127,0.4)',
+          height: hover ? 4 : 2,
+        }}
+      />
+      <div
+        style={{
+          ...styles.rowDividerGrip,
           opacity: hover ? 1 : 0.65,
           background: hover ? '#2979FF' : 'rgba(40,40,40,0.85)',
         }}
@@ -747,6 +851,37 @@ const styles: Record<string, React.CSSProperties> = {
     transform: 'translate(-50%, -50%)',
     width: 16,
     height: 30,
+    borderRadius: 6,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+    transition: 'opacity 0.12s, background 0.12s',
+    pointerEvents: 'none',
+  },
+  rowDivider: {
+    height: 8,
+    flexShrink: 0,
+    position: 'relative',
+    cursor: 'row-resize',
+    zIndex: 6,
+  },
+  rowDividerLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    borderRadius: 2,
+    transition: 'background 0.12s, height 0.12s',
+  },
+  rowDividerGrip: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    width: 30,
+    height: 16,
     borderRadius: 6,
     display: 'flex',
     alignItems: 'center',

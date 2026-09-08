@@ -19,6 +19,8 @@ export interface LayoutCell {
 export interface LayoutRow {
   id: string
   cells: LayoutCell[]
+  /** Row width as a fraction of the grid width (vertical resize). Default 1. */
+  scale?: number
 }
 
 export interface Annotation {

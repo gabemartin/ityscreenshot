@@ -40,6 +40,8 @@ interface ProjectLayoutCell {
 interface ProjectLayoutRow {
   id: string
   cells: ProjectLayoutCell[]
+  /** Row width as a fraction of the grid width (vertical resize). Default 1. */
+  scale?: number
 }
 
 interface SessionState {
