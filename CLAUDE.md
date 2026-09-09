@@ -8,7 +8,9 @@
 
 **Repo:** https://github.com/gabemartin/ityscreenshot  
 **Local:** `/Users/gabe/ShipStudio/ityscreenshot`  
-**Run:** `npm install && npm run dev`
+**Run:** `npm install && npm run setup -- --yes` then `npm run dev`  
+**Packaged app:** `npm run install:app` → `/Applications/SpecShot.app`  
+**Onboard a new Mac:** follow `.cursor/skills/specshot-setup` (no `.env`)
 
 ---
 
@@ -24,7 +26,7 @@ User-facing replies should be normal, clear, professional prose.
 
 - Electron 33 + electron-vite + React 18 + TypeScript
 - No CSS framework — plain CSS with CSS variables
-- `electron-builder` configured for DMG packaging (not yet used)
+- `electron-builder` — `npm run pack` (unpacked `.app`) and `npm run dist` (DMG)
 
 ---
 

@@ -7,6 +7,9 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "setup": "node scripts/setup.mjs",
+    "install:app": "bash scripts/install-app.sh",
+    "postinstall": "node scripts/postinstall.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "pack": "npm run build && electron-builder --dir",

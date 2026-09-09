@@ -3,6 +3,9 @@ out/
 dist/
 .DS_Store
 *.local
+.env
+.env.*
+!.env.example
 
 # ShipStudio metadata
 .shipstudio/

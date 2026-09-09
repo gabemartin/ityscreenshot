@@ -1,10 +1,10 @@
 # SpecShot
 
-**Paste or drop a screenshot, annotate it with notes and arrows, copy it back to your clipboard — pixel-perfect, at Retina resolution.**
+**Paste or drop a screenshot, annotate it with notes, arrows, and shapes, then copy a Retina PNG — or save a `.zip` / `.speck` bundle for LLM intake.**
 
-Built for quickly communicating UI feedback or bug context to an LLM, a designer, or a teammate.
+Built to communicate UI feedback or bug context to an LLM, a designer, or a teammate.
 
-![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-36-47848F?logo=electron&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS-000000?logo=apple)
@@ -14,13 +14,12 @@ Built for quickly communicating UI feedback or bug context to an LLM, a designer
 
 ## What it does
 
-1. **Paste or drop** a screenshot — press `⌘V` to paste from the clipboard, or drag any image file straight into the window.
-2. **Click** anywhere on the image to drop an annotation dot. A colored card appears in the sidebar.
-3. **Type** a note in the card describing what you want to say about that point.
-4. **Drag** the dot on the image to reposition it at any time.
-5. **Copy** the fully annotated view back to your clipboard (or save it as a PNG, or drag it straight into another app).
+1. **Paste or drop** a screenshot — `⌘V` from the clipboard, or drag an image (or a `.zip` / `.speck` project) into the window.
+2. **Place markup** — notes (click), arrows, squares, and circles. Dots and boxes stay draggable.
+3. **Write the note** in the colored sidebar card. Cards grow as you type.
+4. **Copy Image** for a pixel-perfect Retina PNG of the live UI, or **Save Project** for a structured bundle (`README.md`, `project.json`, source image, rendered export).
 
-The exported image is a pixel-perfect, full-Retina screenshot of the actual rendered UI — sidebar, arrows, dots, and all.
+The exported PNG is a capture of the actual rendered window (sidebar, arrows, dots), not a re-drawn canvas.
 
 ---
 
@@ -28,35 +27,123 @@ The exported image is a pixel-perfect, full-Retina screenshot of the actual rend
 
 | Feature | Detail |
 |---|---|
-| **⌘V paste** | Reads image from clipboard; auto-loaded on launch |
-| **Drag-and-drop** | Drag any image file into the window — works whether the canvas is empty or has an existing image; a frosted overlay appears while hovering |
-| **Click-to-annotate** | Drops a colored dot + matching sidebar card |
-| **Draggable dots** | Reposition any annotation point after placing it |
-| **Dashed arrows** | A fixed viewport-level SVG connects each card to its dot in real time |
-| **Auto-cycling colors** | Pink → Blue → Teal → Orange, then repeats |
-| **Auto-expanding textarea** | Cards grow as you type |
-| **Copy to Clipboard** | Captures the live UI at native Retina resolution via `webContents.capturePage` |
-| **Save as PNG** | Native save dialog |
-| **Drag out** | Hover the image and drag the handle to drop a PNG into any app |
-| **Global hotkey** | `⌘Shift+2` shows/focuses the window from anywhere |
-| **Tray icon** | Window hides to tray instead of closing; Dock icon follows window visibility |
+| **⌘V paste** | Clipboard image; session image is restored on relaunch |
+| **Drag-and-drop** | Images onto the canvas; `.zip` / `.speck` hydrates a project |
+| **Multi-image canvas** | Drop more screenshots as new rows or extra columns |
+| **Note / arrow / square / circle** | Tools in the title bar; shortcuts `N` `A` `S` `C` |
+| **Draggable dots + boxes** | Reposition after placing; boxes resize |
+| **Dashed card arrows** | Viewport SVG from each sidebar card to its anchor |
+| **Crop** | Single-image crop (notes outside the crop are removed) |
+| **Auto-cycling colors** | Pink → Blue → Teal → Orange |
+| **Copy Image** | Live UI at native Retina via `webContents.capturePage` |
+| **Save / Open Project** | `.zip` default (chat-upload friendly); `.speck` also opens |
+| **Global hotkey** | `⌘⇧2` shows/focuses the window |
+| **Tray** | Close hides to the menu bar; Dock icon follows visibility |
 
 ---
 
-## Screenshots
+## Getting started (new developer)
 
-> _Add screenshots here once the UI is finalized._
+**macOS only.** Node **20+**. No `.env`, no API keys.
+
+### 1. Prerequisites
+
+```bash
+# Xcode command-line tools (once per machine)
+xcode-select --install
+
+# Node 20+ if needed
+brew install node@20
+node -v   # expect v20 or newer
+```
+
+### 2. Clone and install
+
+```bash
+git clone https://github.com/gabemartin/ityscreenshot.git
+cd ityscreenshot
+npm install
+```
+
+`npm install` prints a reminder to run setup. **Do that next.**
+
+### 3. Walk through setup (required once)
+
+```bash
+npm run setup
+```
+
+Setup will:
+
+1. Confirm you are on macOS with Node 20+
+2. Run `npm install` if `node_modules` is missing
+3. Ask to copy `resources/icon.icns` onto the Electron.dev Dock icon (macOS caches the Electron binary icon; `app.dock.setIcon()` is not enough)
+4. Ask to **build SpecShot and install `SpecShot.app` into `/Applications`**
+5. Print the first-run checklist (hotkey, tray, paste, tools, Save Project vs Copy Image)
+
+Agents / CI: `npm run setup -- --yes` accepts every default.
+
+### 4. Two ways to run
+
+| You want | Command |
+|---|---|
+| **Daily use** (Launchpad / Spotlight) | `npm run install:app` then open **SpecShot** — this is the packaged app in `/Applications` |
+| **Edit the product** | `npm run dev` — Electron window opens from the repo |
+
+`⌘⇧2` focuses the window from anywhere. Closing it hides to the tray; it does not quit.
+
+### Install / refresh the app in `/Applications`
+
+Cursor skill: `.cursor/skills/install-to-applications` (also triggered by “put it in Applications”).
+
+```bash
+npm run install:app
+```
+
+Equivalent: `npm run pack` then copy `dist/mac-arm64/SpecShot.app` (or `dist/mac/`, `dist/mac-x64/`) to `/Applications/SpecShot.app`.
+
+Shareable disk image (optional):
+
+```bash
+npm run dist    # writes dist/SpecShot-*.dmg
+```
+
+App ID: `com.gabemartin.ityscreenshot`.
+
+### First-run checklist
+
+1. Open **SpecShot** from `/Applications` (or Spotlight).
+2. Paste a screenshot with `⌘V`, or drop a file on the window.
+3. Click the image to add a note; switch tools with `N` / `A` / `S` / `C`.
+4. **Copy Image** → clipboard PNG. **Save Project** → `.zip` bundle for an LLM.
+5. When coding: `npm run dev`. After an Electron upgrade, re-run `npm run setup` so the Dock icon is replaced again.
+
+---
+
+## Agent onboarding
+
+This repo ships two project skills. A new-clone agent should follow them instead of improvising:
+
+| Skill | When |
+|---|---|
+| `.cursor/skills/specshot-setup` | Clone, first machine, coworker onboard |
+| `.cursor/skills/install-to-applications` | Put the built app in `/Applications` |
+
+A workspace rule (`.cursor/rules/specshot-setup.mdc`) tells the agent to run that walkthrough on a fresh clone.
 
 ---
 
 ## Tech stack
 
-- **[Electron 33](https://www.electronjs.org/)** — desktop shell
-- **[electron-vite](https://electron-vite.org/)** — build tooling (Vite for renderer, esbuild for main/preload)
+- **[Electron](https://www.electronjs.org/)** — desktop shell
+- **[electron-vite](https://electron-vite.org/)** — Vite renderer, esbuild main/preload
 - **[React 18](https://react.dev/)** — renderer UI
 - **[TypeScript 5.6](https://www.typescriptlang.org/)** — throughout
 - **[lucide-react](https://lucide.dev/)** — icons
+- **[electron-builder](https://www.electron.build/)** — `pack` (dir) and `dist` (DMG)
 - No CSS framework — plain CSS with CSS custom properties
+
+Dev renderer port is **3000** (pinned for Ship Studio). `scripts/dev.mjs` maps `--port` onto `SHIPSTUDIO_DEV_PORT`.
 
 ---
 
@@ -65,75 +152,64 @@ The exported image is a pixel-perfect, full-Retina screenshot of the actual rend
 ```
 src/
 ├── main/
-│   └── index.ts          # Electron main process — window, tray, IPC handlers, global hotkey
+│   ├── index.ts           # Window, tray, IPC, global hotkey, zip/speck I/O
+│   └── contextMenu.ts
 ├── preload/
-│   ├── index.ts          # Exposes window.electronAPI to the renderer
-│   └── index.d.ts        # TypeScript types for the preload bridge
+│   ├── index.ts           # window.electronAPI
+│   └── index.d.ts
 └── renderer/src/
-    ├── App.tsx            # Root component — all state, arrow SVG overlay, export logic
-    ├── types.ts           # Annotation interface
-    ├── main.tsx           # React entry point
-    └── components/
-        ├── TopBar.tsx     # Draggable title bar, Save + Copy buttons
-        ├── Sidebar.tsx    # 280px panel, scrollable stack of AnnotationCards
-        ├── AnnotationCard.tsx  # Colored card with auto-expanding textarea
-        └── Canvas.tsx     # Image display, crosshair click-to-annotate, drag handle
+    ├── App.tsx            # State, arrows, export, DnD, project hydrate
+    ├── types.ts
+    ├── components/        # TopBar, Sidebar, Canvas, cards, layers, crop
+    └── utils/
 
-resources/
-├── icon.icns             # App icon (macOS)
-├── app_1024.png          # App icon source assets
-└── taskbar_*.png         # Tray/taskbar icon assets
+scripts/
+├── setup.mjs              # First-run walkthrough (npm run setup)
+├── install-app.sh         # Build if needed → /Applications/SpecShot.app
+├── postinstall.mjs        # Reminder after npm install
+└── dev.mjs                # electron-vite wrapper (accepts --port)
+
+.cursor/skills/
+├── specshot-setup/
+└── install-to-applications/
+
+resources/                 # App + tray icons
 ```
 
 ---
 
-## Getting started
+## Project bundle (`.zip` / `.speck`)
 
-### Prerequisites
+Every **Save Project** zip contains:
 
-- **Node.js** ≥ 20
-- **macOS** (the app uses macOS-specific Electron APIs — tray, Dock, `capturePage`)
+| File | Role |
+|---|---|
+| `README.md` | LLM instructions + annotation table |
+| `project.json` | Versioned manifest (authoritative) |
+| `source-image.*` | Original screenshot(s) |
+| `rendered-export.*` | Composed view with markup (optional) |
 
-### Install & run
+Default save format is `.zip` (chat-upload compatible). The app also opens `.speck`.
 
-```bash
-git clone https://github.com/gabemartin/ityscreenshot.git
-cd ityscreenshot
-npm install
-npm run dev
-```
-
-The app window opens automatically. Press `⌘Shift+2` at any time to bring it back if you close it.
-
-### Build a distributable DMG
-
-```bash
-npm run dist
-```
-
-The `.dmg` is written to `dist/`. App ID: `com.gabemartin.ityscreenshot`.
+Target projects often store bundles at `/specks/`, `/speck/`, or `/spec/` relative to the repo root.
 
 ---
 
 ## How the export works
 
-Rather than an offscreen canvas pipeline, export captures the actual rendered Electron window:
-
-1. `isExporting = true` is set in React state — this hides the sidebar footer ("+ Add note") so it doesn't appear in the output.
-2. A double `requestAnimationFrame` ensures the DOM has repainted before capture fires.
-3. `captureContent()` IPC call triggers `webContents.capturePage({ x: 0, y: 44, … })` in the main process, cropping out the 44 px title bar.
-4. Returns a full Retina-resolution PNG data URL (2× on Retina displays).
+1. `isExporting = true` hides the sidebar “+ Add note” footer.
+2. A double `requestAnimationFrame` waits for the repaint.
+3. `captureContent()` → `webContents.capturePage({ x: 0, y: 44, … })` crops the 44 px title bar.
+4. Returns a Retina PNG data URL (2× on Retina).
 5. `isExporting = false` restores the footer.
-
-The result looks exactly like the live UI — no re-rendering, no font substitution, no layout differences.
 
 ---
 
-## How arrows work
+## How card arrows work
 
-A `position: fixed` full-viewport `<svg>` sits at `z-index: 10` in `App.tsx`. Each `AnnotationCard` registers its DOM element into a `cardElsRef` Map via a `useCallback` ref. On every render (and after resize/scroll), arrow coordinates are recalculated from `getBoundingClientRect()` on both the card and the image element.
+A `position: fixed` full-viewport `<svg>` in `App.tsx` connects each sidebar card to its image anchor via `getBoundingClientRect()`.
 
-> **Important:** the ref callback in `AnnotationCard` must be wrapped in `useCallback`. An inline arrow function creates a new function identity each render, which causes React to call the old ref with `null` on every cycle — triggering an infinite re-render loop.
+The `AnnotationCard` ref callback **must** be wrapped in `useCallback`. An inline function creates a new identity each render and loops (old ref `null` → `setTick` → render).
 
 ---
 
@@ -142,9 +218,11 @@ A `position: fixed` full-viewport `<svg>` sits at `z-index: 10` in `App.tsx`. Ea
 ```typescript
 interface Annotation {
   id: string
-  point: { x: number; y: number }  // 0–1 fractions on the image
+  point?: { x: number; y: number }  // 0–1 fractions; omit = sidebar-only
   text: string
-  color: string  // cycles through: #E91E8C → #2979FF → #00BFA5 → #FF6D00
+  color: string                     // #E91E8C → #2979FF → #00BFA5 → #FF6D00
+  rect?: { x: number; y: number; w: number; h: number }
+  imageId?: string                  // which canvas image (v2)
 }
 ```
 
@@ -154,22 +232,26 @@ interface Annotation {
 
 | Method | Description |
 |---|---|
-| `readClipboardImage()` | Returns the clipboard image as a data URL, or `null` |
-| `writeClipboardImage(dataUrl)` | Writes a PNG data URL to the clipboard |
-| `saveImage(dataUrl)` | Opens a native Save dialog and writes the PNG |
-| `captureContent()` | Captures the rendered window below the top bar; returns a data URL |
-| `writeDragTemp(dataUrl)` | Writes a temp PNG to disk for native drag-out |
-| `dragOut()` | Initiates a native file drag from the precomputed temp file |
+| `readClipboardImage()` | Clipboard image as a data URL, or `null` |
+| `writeClipboardImage(dataUrl)` | Write a PNG data URL to the clipboard |
+| `saveImage(dataUrl)` | Native Save dialog → PNG |
+| `captureContent()` | Capture below the top bar |
+| `writeDragTemp` / `dragOut` | Native drag-out of the PNG |
+| `writeDragProjectTemp` / `dragOutProject` | Native drag-out of the project zip |
+| `saveSessionImage` / `loadSessionImage` | Persist last image across restarts |
+| `saveSessionState` / `loadSessionState` | Persist multi-image layout |
+| `saveProject` / `openProject` / `openProjectFromPath` | `.zip` / `.speck` bundles |
+| `getPathForFile(file)` | Native path of a dropped file (`webUtils`) |
 
 ---
 
-## Known caveats & loose ends
+## Known caveats
 
-- **`AnnotationOverlay.tsx`** — still in the file tree but unused (arrows moved to the App-level SVG). Safe to delete.
-- **`utils/export.ts`** — unused offscreen-canvas pipeline, kept for reference. Safe to delete.
-- **Dev dock icon** — macOS caches the icon from the Electron binary. `app.dock.setIcon()` alone isn't enough; you must also replace `node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns` with `resources/icon.icns`. Redo this after any `npm install` that upgrades Electron.
-- **Autofill DevTools errors** — harmless `Autofill.enable failed` messages in the dev console; they disappear in a packaged build.
-- **Speech-to-text** — removed. `webkitSpeechRecognition` fails in Electron (no bundled Google API key). A Swift `SFSpeechRecognizer` subprocess was explored and removed for complexity; revisit later.
+- **`AnnotationOverlay.tsx`** and **`utils/export.ts`** are unused leftovers. Safe to delete.
+- **Dev Dock icon** — replace `node_modules/electron/dist/Electron.app/Contents/Resources/electron.icns` with `resources/icon.icns` after Electron upgrades. `npm run setup` does this.
+- **Autofill DevTools errors** — harmless `Autofill.enable failed` in dev; gone when packaged.
+- **Unsigned local builds** — `install-app.sh` runs `xattr -cr`. If Gatekeeper still blocks, right-click → Open once.
+- **Speech-to-text** — removed (`webkitSpeechRecognition` needs a Google key Electron does not ship).
 
 ---
 

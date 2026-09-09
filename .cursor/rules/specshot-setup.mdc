@@ -1,0 +1,14 @@
+---
+description: Walk new SpecShot developers through clone, setup, and /Applications install
+alwaysApply: true
+---
+
+# SpecShot setup (new developers)
+
+If this is a fresh clone, an empty workspace, or the user asks to install / set up / onboard / get the app into Applications:
+
+1. Follow `.cursor/skills/specshot-setup/SKILL.md`
+2. Install the packaged app with `.cursor/skills/install-to-applications/SKILL.md`
+3. Speak the first-run checklist from that setup skill — do not drop them after `npm install`
+
+There is no `.env`. Do not create secrets.
